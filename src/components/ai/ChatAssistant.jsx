@@ -9,25 +9,14 @@ const WELCOME = {
 };
 
 const SUGGESTIONS = [
-  "What is low on stock?",
-  "Check PWR-2201",
-  "Reorder 25 PWR-2214",
-  "Warehouse valuation",
+  "What is our current warehouse stock status?",
+  "List active product categories",
+  "What products are low on stock?",
+  "Total inventory valuation",
 ];
 
-function fallbackReply(input) {
-  const lower = input.toLowerCase();
-  if (lower.includes("last") && (lower.includes("product") || lower.includes("purchase") || lower.includes("buy"))) {
-    const last = mockPurchases[0];
-    if (last) {
-      return `Your last purchase was ${last.po} from ${last.supplier} for ${last.items} item(s) on ${last.date}.`;
-    }
-  }
-  const hit = aiChatCannedResponses.find((r) => r.match.some((m) => lower.includes(m)));
-  return (
-    hit?.reply ||
-    "I'm currently unable to reach the live AI backend service. Please check your backend connection."
-  );
+function fallbackReply() {
+  return "Unable to reach the StockPilot AI Copilot service. Please verify that the backend server is running.";
 }
 
 export default function ChatAssistant() {
