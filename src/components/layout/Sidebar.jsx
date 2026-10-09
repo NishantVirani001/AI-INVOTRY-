@@ -32,7 +32,7 @@ const NAV = [
   { to: "/sales", label: "Sales & Orders", icon: ShoppingCart, roles: ["Admin", "Manager", "Employee", "Staff"] },
   { to: "/purchases", label: "Purchases", icon: PackagePlus, roles: ["Admin", "Manager"] },
   { to: "/customers", label: "Customers", icon: Users, roles: ["Admin", "Manager", "Employee", "Staff"] },
-  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["Admin", "Manager", "Employee", "Staff", "Customer"] },
+  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["Admin", "Manager", "Employee", "Staff"] },
   { to: "/reports", label: "Reports", icon: BarChart3, roles: ["Admin", "Manager"] },
   { to: "/ai-insights", label: "AI Insights", icon: Sparkles, roles: ["Admin", "Manager"] },
 
@@ -41,19 +41,21 @@ const NAV = [
   { to: "/customer/catalog", label: "Browse Catalog", icon: ShoppingBag, roles: ["Customer"] },
   { to: "/customer/orders", label: "My Orders", icon: PackageCheck, roles: ["Customer"] },
   { to: "/customer/activity", label: "My Activity", icon: Activity, roles: ["Customer"] },
+  { to: "/notifications", label: "Order Updates", icon: Bell, roles: ["Customer"] },
 ];
 
 export default function Sidebar({ mobileOpen, onCloseMobile }) {
   const { user } = useAuth();
-  const [unreadCount, setUnreadCount] = useState(mockNotifications.length);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    notificationService.getAll()
+    const params = user?.role === "Customer" ? { customer: user?.name } : {};
+    notificationService.getAll(params)
       .then((res) => {
         if (Array.isArray(res)) setUnreadCount(res.length);
       })
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   return (
     <>

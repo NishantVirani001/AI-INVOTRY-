@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models.core as models
+from backend.auth_utils import get_optional_current_user
 from backend.routers.dashboard import invalidate_dashboard_cache
 
 router = APIRouter(prefix="/api/sales", tags=["Sales Orders"])
@@ -155,16 +156,27 @@ def create_sale(data: OrderCreate, db: Session = Depends(get_db)):
     }
 
 @router.put("/{order_id}/accept")
-def accept_sale_order(order_id: str, db: Session = Depends(get_db)):
+def accept_sale_order(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
     """
-    Supplier accepts an incoming customer order:
-    1. Validates that the order exists and is currently Pending.
-    2. Checks product inventory stock.
-    3. Atomically deducts product stock.
-    4. Writes stock-out transaction to inventory audit ledger.
-    5. Sets order status to 'Accepted'.
-    6. Updates customer purchase metrics.
+    Manager/Staff accepts an incoming customer order:
+    1. Forbids Customer role from self-accepting.
+    2. Validates that the order exists and is currently Pending.
+    3. Checks product inventory stock.
+    4. Atomically deducts product stock.
+    5. Writes stock-out transaction to inventory audit ledger.
+    6. Sets order status to 'Accepted'.
+    7. Updates customer purchase metrics.
     """
+    if current_user and current_user.role == "Customer":
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: Customers cannot accept orders. Only warehouse managers or administrators can accept orders."
+        )
+
     order = db.query(models.Order).filter(
         (models.Order.id == order_id) | (models.Order.invoice == order_id)
     ).first()
@@ -227,11 +239,22 @@ def accept_sale_order(order_id: str, db: Session = Depends(get_db)):
     }
 
 @router.put("/{order_id}/reject")
-def reject_sale_order(order_id: str, data: Optional[RejectInput] = None, db: Session = Depends(get_db)):
+def reject_sale_order(
+    order_id: str,
+    data: Optional[RejectInput] = None,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
     """
-    Supplier rejects a customer order.
+    Manager rejects a customer order.
     If the order was already accepted, stock is refunded back into inventory.
     """
+    if current_user and current_user.role == "Customer":
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: Customers cannot reject orders. Only warehouse managers or administrators can reject orders."
+        )
+
     order = db.query(models.Order).filter(
         (models.Order.id == order_id) | (models.Order.invoice == order_id)
     ).first()

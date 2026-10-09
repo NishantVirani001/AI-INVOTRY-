@@ -1,23 +1,41 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, XCircle, Clock, Check, ShoppingCart, CheckCircle2, ArrowRight } from "lucide-react";
+import {
+  AlertTriangle,
+  XCircle,
+  Clock,
+  Check,
+  ShoppingCart,
+  CheckCircle2,
+  ArrowRight,
+  PackageCheck,
+  Bell,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
 import Button from "../components/common/Button";
 import { EmptyState, Loader } from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
+import { useAuth } from "../context/AuthContext";
 import notificationService from "../services/notificationService";
 import orderService from "../services/orderService";
 import { mockNotifications } from "../data/mockData";
 
 const META = {
+  // Warehouse manager alerts
   order_pending: { icon: ShoppingCart, tone: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20" },
   low: { icon: AlertTriangle, tone: "text-stock-low", bg: "bg-stock-low/10", border: "border-stock-low/20" },
   out: { icon: XCircle, tone: "text-stock-out", bg: "bg-stock-out/10", border: "border-stock-out/20" },
   expiry: { icon: Clock, tone: "text-stock-info", bg: "bg-stock-info/10", border: "border-stock-info/20" },
+
+  // Customer personal order updates
+  customer_pending: { icon: Clock, tone: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20" },
+  customer_accepted: { icon: CheckCircle2, tone: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+  customer_completed: { icon: PackageCheck, tone: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20" },
+  customer_rejected: { icon: XCircle, tone: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
 };
 
-const TABS = [
+const MANAGER_TABS = [
   { key: "all", label: "All" },
   { key: "order_pending", label: "Incoming Orders" },
   { key: "low", label: "Low Stock" },
@@ -25,24 +43,39 @@ const TABS = [
   { key: "expiry", label: "Expiring" },
 ];
 
+const CUSTOMER_TABS = [
+  { key: "all", label: "All Updates" },
+  { key: "customer_pending", label: "Under Review" },
+  { key: "customer_accepted", label: "Approved" },
+  { key: "customer_completed", label: "Delivered" },
+];
+
 export default function Notifications() {
+  const { user } = useAuth();
   const { toast } = useToast();
+
+  const isCustomer = user?.role === "Customer";
+  const canManageOrders = user?.role === "Admin" || user?.role === "Manager";
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("all");
   const [processingId, setProcessingId] = useState(null);
 
+  const tabs = isCustomer ? CUSTOMER_TABS : MANAGER_TABS;
+
   const loadNotifications = async () => {
     try {
       setLoading(true);
-      const res = await notificationService.getAll();
-      if (Array.isArray(res) && res.length > 0) {
+      const params = isCustomer ? { customer: user?.name } : {};
+      const res = await notificationService.getAll(params);
+      if (Array.isArray(res)) {
         setItems(res);
       } else {
-        setItems(mockNotifications);
+        setItems(isCustomer ? [] : mockNotifications);
       }
     } catch {
-      setItems(mockNotifications);
+      setItems(isCustomer ? [] : mockNotifications);
     } finally {
       setLoading(false);
     }
@@ -50,7 +83,7 @@ export default function Notifications() {
 
   useEffect(() => {
     loadNotifications();
-  }, []);
+  }, [user]);
 
   const filtered = tab === "all" ? items : items.filter((n) => n.type === tab);
 
@@ -63,7 +96,16 @@ export default function Notifications() {
     setItems((prev) => prev.filter((n) => n.id !== id));
   };
 
+  // Only manager or admin can accept orders
   const handleAcceptOrder = async (n) => {
+    if (!canManageOrders) {
+      toast({
+        type: "error",
+        message: "Permission denied: Only warehouse managers or administrators can accept customer orders.",
+      });
+      return;
+    }
+
     setProcessingId(n.id);
     try {
       await orderService.accept(n.orderId || n.invoice);
@@ -71,7 +113,6 @@ export default function Notifications() {
         type: "success",
         message: `Order ${n.invoice || ""} accepted! Warehouse inventory updated.`,
       });
-      // Remove or mark as processed
       setItems((prev) => prev.filter((item) => item.id !== n.id));
     } catch (err) {
       toast({
@@ -95,18 +136,24 @@ export default function Notifications() {
   return (
     <div>
       <PageHeader
-        eyebrow="Alerts & Incoming Orders"
-        title="Notifications"
-        subtitle="Incoming customer orders awaiting acceptance, low stock, and stockout warnings"
-        action={items.length > 0 && (
-          <Button variant="outline" size="sm" onClick={clearAll}>
-            Clear all
-          </Button>
-        )}
+        eyebrow={isCustomer ? "Order Status & Tracking" : "Alerts & Incoming Orders"}
+        title={isCustomer ? "My Order Updates" : "Notifications"}
+        subtitle={
+          isCustomer
+            ? "Real-time updates from warehouse managers on your submitted orders"
+            : "Incoming customer orders awaiting acceptance, low stock, and stockout warnings"
+        }
+        action={
+          items.length > 0 && (
+            <Button variant="outline" size="sm" onClick={clearAll}>
+              Clear all
+            </Button>
+          )
+        }
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const count = t.key === "all" ? items.length : items.filter((n) => n.type === t.key).length;
           return (
             <button
@@ -140,22 +187,29 @@ export default function Notifications() {
       <Card>
         {loading ? (
           <div className="flex h-48 items-center justify-center">
-            <Loader label="Loading alerts..." />
+            <Loader label="Loading notifications..." />
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState title="All caught up" subtitle="No notifications in this category right now." />
+          <EmptyState
+            title="All caught up"
+            subtitle={
+              isCustomer
+                ? "No new order updates at this moment."
+                : "No notifications in this category right now."
+            }
+          />
         ) : (
           <ul className="divide-y divide-graphite-800/[0.06] dark:divide-paper-100/[0.06]">
             {filtered.map((n) => {
               const meta = META[n.type] || META.low;
               const Icon = meta.icon;
-              const isOrder = n.type === "order_pending";
+              const isManagerIncomingOrder = !isCustomer && n.type === "order_pending";
 
               return (
                 <li
                   key={n.id}
                   className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3.5 px-2 transition-colors ${
-                    isOrder ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.05] rounded-lg" : ""
+                    isManagerIncomingOrder ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.05] rounded-lg" : ""
                   }`}
                 >
                   <div className="flex items-start sm:items-center gap-3">
@@ -167,9 +221,24 @@ export default function Notifications() {
                         <p className="text-sm font-semibold text-graphite-900 dark:text-paper-100">
                           {n.title}
                         </p>
-                        {isOrder && (
+                        {isManagerIncomingOrder && (
                           <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
                             ACTION REQUIRED
+                          </span>
+                        )}
+                        {n.status && isCustomer && (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                              n.status === "Accepted"
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : n.status === "Completed"
+                                ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                                : n.status === "Rejected"
+                                ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                                : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                            }`}
+                          >
+                            {n.status}
                           </span>
                         )}
                       </div>
@@ -180,7 +249,8 @@ export default function Notifications() {
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-center">
-                    {isOrder && (
+                    {/* ONLY Managers / Admins see Accept Order button */}
+                    {isManagerIncomingOrder && canManageOrders && (
                       <>
                         <Button
                           size="sm"
@@ -193,12 +263,22 @@ export default function Notifications() {
                           {processingId === n.id ? "Accepting..." : "Accept Order"}
                         </Button>
                         <Link
-                          to="/sales"
+                          to="/sales?tab=pending"
                           className="flex items-center gap-1 text-xs font-semibold text-signal hover:underline px-2"
                         >
-                          View <ArrowRight size={12} />
+                          Review in Sales <ArrowRight size={12} />
                         </Link>
                       </>
+                    )}
+
+                    {/* Customers see a convenient link to view their order tracking */}
+                    {isCustomer && (
+                      <Link
+                        to="/customer/orders"
+                        className="flex items-center gap-1 text-xs font-semibold text-signal hover:underline px-2"
+                      >
+                        Track Order <ArrowRight size={12} />
+                      </Link>
                     )}
 
                     <button

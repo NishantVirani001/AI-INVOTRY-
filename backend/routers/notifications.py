@@ -5,17 +5,88 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models.core as models
 
+from backend.auth_utils import get_optional_current_user
+
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 # In-memory dismissed notification set to respect dismissal during session
 _dismissed_ids = set()
 
 @router.get("")
-def get_notifications(db: Session = Depends(get_db)):
-    products = db.query(models.Product).all()
+def get_notifications(
+    customer: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_optional_current_user)
+):
     notifications = []
-
     now = datetime.utcnow()
+
+    # Determine customer identity if authenticated as Customer or explicitly queried
+    is_customer_view = (current_user and current_user.role == "Customer") or bool(customer)
+    customer_identifier = customer or (current_user.name if current_user and current_user.role == "Customer" else None)
+
+    # ==========================================
+    # CUSTOMER NOTIFICATIONS: Personal Order Updates Only
+    # ==========================================
+    if is_customer_view:
+        query = db.query(models.Order)
+        if customer_identifier:
+            query = query.filter(models.Order.customer.ilike(f"%{customer_identifier.strip()}%"))
+        my_orders = query.order_by(models.Order.date.desc()).limit(15).all()
+
+        for o in my_orders:
+            item_summary = ", ".join([f"{it.quantity}x {it.product.name if it.product else 'Item'}" for it in o.items]) if o.items else "Catalog products"
+            notif_id = f"cust_notif_{o.id}_{o.status}"
+            if notif_id in _dismissed_ids:
+                continue
+
+            if o.status == "Pending":
+                notifications.append({
+                    "id": notif_id,
+                    "type": "customer_pending",
+                    "title": f"Order {o.invoice} Submitted (₹{o.total:,.2f})",
+                    "time": f"Awaiting warehouse manager review • {item_summary}",
+                    "invoice": o.invoice,
+                    "status": "Pending",
+                    "isCustomer": True,
+                })
+            elif o.status == "Accepted":
+                notifications.append({
+                    "id": notif_id,
+                    "type": "customer_accepted",
+                    "title": f"Order {o.invoice} Approved by Manager",
+                    "time": f"Warehouse stock allocated • Fulfillment in progress",
+                    "invoice": o.invoice,
+                    "status": "Accepted",
+                    "isCustomer": True,
+                })
+            elif o.status == "Completed":
+                notifications.append({
+                    "id": notif_id,
+                    "type": "customer_completed",
+                    "title": f"Order {o.invoice} Fulfilled & Delivered",
+                    "time": f"Completed on {o.date.strftime('%Y-%m-%d') if o.date else 'Recently'}",
+                    "invoice": o.invoice,
+                    "status": "Completed",
+                    "isCustomer": True,
+                })
+            elif o.status == "Rejected":
+                notifications.append({
+                    "id": notif_id,
+                    "type": "customer_rejected",
+                    "title": f"Order {o.invoice} Declined",
+                    "time": f"Warehouse management could not fulfill this order",
+                    "invoice": o.invoice,
+                    "status": "Rejected",
+                    "isCustomer": True,
+                })
+
+        return notifications
+
+    # ==========================================
+    # OPERATIONS / MANAGER NOTIFICATIONS: Warehouse Alerts & Incoming Orders
+    # ==========================================
+    products = db.query(models.Product).all()
 
     # 1. Out of stock products
     for p in products:
@@ -74,7 +145,7 @@ def get_notifications(db: Session = Depends(get_db)):
                 "poId": po.id,
             })
 
-    # 5. Incoming customer orders awaiting supplier acceptance
+    # 5. Incoming customer orders awaiting supplier/manager acceptance
     pending_orders = db.query(models.Order).filter(models.Order.status == "Pending").order_by(models.Order.date.desc()).all()
     for o in pending_orders:
         notif_id = f"notif_order_{o.id}"
@@ -84,7 +155,7 @@ def get_notifications(db: Session = Depends(get_db)):
                 "id": notif_id,
                 "type": "order_pending",
                 "title": f"Incoming Order {o.invoice} from {o.customer} (₹{o.total:,.2f})",
-                "time": f"Awaiting your acceptance • {item_summary}",
+                "time": f"Awaiting manager acceptance • {item_summary}",
                 "orderId": o.id,
                 "invoice": o.invoice,
                 "customer": o.customer,
