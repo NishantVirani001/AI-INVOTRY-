@@ -110,13 +110,13 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <SalesChart />
+        <SalesChart data={liveStats?.salesTrend} />
         <AIInsightsPanel />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <InventoryChart />
-        <CategoryChart />
+        <InventoryChart data={liveStats?.inventoryLevels} />
+        <CategoryChart data={liveStats?.categoryDistribution} />
         <RecentActivityFeed activities={liveStats?.recentActivities} />
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -8,15 +9,31 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import Card, { CardHeader } from "../common/Card";
-import { inventoryLevels } from "../../data/mockData";
+import dashboardService from "../../services/dashboardService";
 
-export default function InventoryChart() {
+export default function InventoryChart({ data }) {
+  const [chartData, setChartData] = useState(data || []);
+
+  useEffect(() => {
+    if (data && data.length > 0) {
+      setChartData(data);
+    } else {
+      dashboardService.getStats()
+        .then((res) => {
+          if (res?.inventoryLevels && res.inventoryLevels.length > 0) {
+            setChartData(res.inventoryLevels);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [data]);
+
   return (
     <Card>
       <CardHeader title="Inventory Levels" subtitle="Total units on hand, 6 months" />
       <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={inventoryLevels} margin={{ left: -20, right: 10, top: 5 }}>
+          <LineChart data={chartData} margin={{ left: -20, right: 10, top: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-graphite-800/10 dark:text-paper-100/10" vertical={false} />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="currentColor" className="text-graphite-400" tickLine={false} axisLine={false} />
             <YAxis tick={{ fontSize: 12 }} stroke="currentColor" className="text-graphite-400" tickLine={false} axisLine={false} />

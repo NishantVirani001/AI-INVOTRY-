@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   AreaChart,
   Area,
@@ -8,15 +9,32 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import Card, { CardHeader } from "../common/Card";
-import { salesTrend } from "../../data/mockData";
+import dashboardService from "../../services/dashboardService";
+import { formatCurrency } from "../../utils/formatters";
 
-export default function SalesChart() {
+export default function SalesChart({ data }) {
+  const [chartData, setChartData] = useState(data || []);
+
+  useEffect(() => {
+    if (data && data.length > 0) {
+      setChartData(data);
+    } else {
+      dashboardService.getStats()
+        .then((res) => {
+          if (res?.salesTrend && res.salesTrend.length > 0) {
+            setChartData(res.salesTrend);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [data]);
+
   return (
     <Card className="col-span-1 lg:col-span-2">
       <CardHeader title="Sales vs Purchases" subtitle="Last 7 days" />
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={salesTrend} margin={{ left: -20, right: 10, top: 5 }}>
+          <AreaChart data={chartData} margin={{ left: -20, right: 10, top: 5 }}>
             <defs>
               <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#F5C518" stopOpacity={0.35} />
@@ -31,6 +49,7 @@ export default function SalesChart() {
             <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="currentColor" className="text-graphite-400" tickLine={false} axisLine={false} />
             <YAxis tick={{ fontSize: 12 }} stroke="currentColor" className="text-graphite-400" tickLine={false} axisLine={false} />
             <Tooltip
+              formatter={(val) => formatCurrency(val)}
               contentStyle={{
                 background: "var(--tw-tooltip-bg, #1C2027)",
                 border: "none",

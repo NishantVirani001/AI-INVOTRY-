@@ -24,11 +24,18 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     categories = db.query(models.Category).all()
     cat_distribution = []
     for c in categories:
-        prods = [p for p in products if p.category_id == c.id]
+        prods = [p for p in products if p.category_id == c.id or (p.category_obj and p.category_obj.id == c.id)]
         cat_distribution.append({
             "name": c.name,
             "count": len(prods),
             "value": round(sum(p.quantity * p.price for p in prods), 2),
+        })
+    uncategorized = [p for p in products if not p.category_id and not p.category_obj]
+    if uncategorized:
+        cat_distribution.append({
+            "name": "Uncategorized",
+            "count": len(uncategorized),
+            "value": round(sum(p.quantity * p.price for p in uncategorized), 2),
         })
 
     # Recent activities from inventory transactions
