@@ -1,9 +1,15 @@
+import os
+import json
 import re
 import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+from groq import Groq
 import backend.models.core as models
+
+load_dotenv()
 
 # --- Tool Implementations ---
 
@@ -218,6 +224,116 @@ def tool_accept_customer_order(query: str, db: Session) -> Dict[str, Any]:
         "message": f"✅ Order **{order.invoice}** from **{order.customer}** has been accepted! Product stock deducted from inventory ledger.",
     }
 
+# --- Groq LLM Copilot Engine ---
+
+def query_groq_llm(user_prompt: str, db: Session) -> Optional[Dict[str, Any]]:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    model_name = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+
+    try:
+        # Build live database snapshot for context
+        products = db.query(models.Product).all()
+        categories = db.query(models.Category).all()
+        suppliers = db.query(models.Supplier).all()
+        pending_orders = db.query(models.Order).filter(models.Order.status == "Pending").all()
+
+        total_val = sum((p.quantity or 0) * (p.price or 0) for p in products)
+        low_stock_prods = [p for p in products if 0 < (p.quantity or 0) <= (p.reorder_level or 10)]
+        out_of_stock_prods = [p for p in products if (p.quantity or 0) <= 0]
+
+        catalog_summary = []
+        for p in products[:40]:
+            cat = p.category_obj.name if p.category_obj else "General"
+            sup = p.supplier_obj.name if p.supplier_obj else "Direct"
+            catalog_summary.append(
+                f"- SKU: {p.sku} | Name: {p.name} | Qty: {p.quantity} | MinReorder: {p.reorder_level} | Price: ${p.price:.2f} | Cost: ${p.cost:.2f} | Cat: {cat} | Sup: {sup}"
+            )
+        catalog_str = "\n".join(catalog_summary) if catalog_summary else "No products in catalog yet."
+
+        pending_orders_summary = []
+        for o in pending_orders:
+            pending_orders_summary.append(f"- Invoice: {o.invoice} | Customer: {o.customer} | Total: ${o.total:.2f}")
+        pending_str = "\n".join(pending_orders_summary) if pending_orders_summary else "None"
+
+        system_prompt = f"""You are StockPilot AI Copilot, an enterprise AI assistant powering a modern inventory, supply chain, and warehouse management platform.
+You have direct, real-time access to the user's live database.
+
+LIVE DATABASE CONTEXT:
+• Total Active SKUs: {len(products)}
+• Total Inventory Valuation: ${total_val:,.2f}
+• Out of Stock Count: {len(out_of_stock_prods)}
+• Low Stock Count: {len(low_stock_prods)}
+• Total Categories: {len(categories)} ({', '.join(c.name for c in categories) if categories else 'None'})
+• Total Suppliers: {len(suppliers)} ({', '.join(s.name for s in suppliers) if suppliers else 'None'})
+• Pending Customer Orders: {len(pending_orders)}
+
+PRODUCT CATALOG SNAPSHOT:
+{catalog_str}
+
+PENDING CUSTOMER ORDERS:
+{pending_str}
+
+GUIDELINES:
+1. Always be helpful, precise, professional, and clear.
+2. Use markdown formatting with bullet points and bold highlights for numbers, prices, and SKUs.
+3. If the user asks about stock, valuation, low inventory, or suppliers, answer accurately using the live data above.
+4. If the user requests to draft a purchase order or reorder a product (e.g. 'reorder 20 units of X' or 'draft PO for Y'):
+   - Look up the matching product in the catalog.
+   - If found, explain the PO details (product, quantity, supplier, estimated cost = cost * qty) and at the very end of your message on a new line output:
+     ACTION_PO:{{"productId":"<PRODUCT_ID>","sku":"<SKU>","productName":"<NAME>","supplierName":"<SUPPLIER>","quantity":<QTY>,"estimatedCost":<COST>}}
+5. If the user asks to accept a customer order (e.g. 'accept order INV-10245'):
+   - Mention the order details and at the very end on a new line output:
+     ACTION_ORDER:{{"invoice":"<INVOICE>"}}
+"""
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=model_name,
+            temperature=0.3,
+            max_tokens=800,
+        )
+
+        content = response.choices[0].message.content or ""
+
+        # Check for embedded action payloads
+        action = None
+        po_match = re.search(r"ACTION_PO:(\{.*?\})", content, re.DOTALL)
+        if po_match:
+            try:
+                raw_json = po_match.group(1)
+                data = json.loads(raw_json)
+                data["type"] = "APPROVE_PO"
+                action = data
+                content = content.replace(po_match.group(0), "").strip()
+            except Exception:
+                pass
+
+        order_match = re.search(r"ACTION_ORDER:(\{.*?\})", content, re.DOTALL)
+        if order_match:
+            try:
+                raw_json = order_match.group(1)
+                data = json.loads(raw_json)
+                data["type"] = "ACCEPT_ORDER"
+                action = data
+                content = content.replace(order_match.group(0), "").strip()
+            except Exception:
+                pass
+
+        return {
+            "message": content,
+            "action": action,
+        }
+    except Exception as e:
+        print("Groq Copilot API error, falling back to local tools:", e)
+        return None
+
 # --- Core Agent Dispatcher ---
 
 def run_agent_turn(user_prompt: str, db: Session, action_payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -231,6 +347,12 @@ def run_agent_turn(user_prompt: str, db: Session, action_payload: Optional[Dict[
             target = action_payload.get("invoice") or action_payload.get("orderId")
             return tool_accept_customer_order(str(target), db)
 
+    # 2. Try Groq AI Copilot first
+    groq_result = query_groq_llm(user_prompt, db)
+    if groq_result and groq_result.get("message"):
+        return groq_result
+
+    # 3. Fallback to local rule-based engine if Groq is unavailable
     text = user_prompt.strip().lower()
 
     # 2. Check for Supplier accepting customer order
