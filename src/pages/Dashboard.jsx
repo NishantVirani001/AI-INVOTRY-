@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Boxes, Tags, Truck, ShoppingCart, DollarSign, AlertTriangle, XCircle, Activity, Bell } from "lucide-react";
+import { Boxes, Tags, Truck, ShoppingCart, IndianRupee, AlertTriangle, XCircle, Activity, Bell } from "lucide-react";
 import PageHeader from "../components/common/PageHeader";
 import StatCard from "../components/dashboard/StatCard";
 import SalesChart from "../components/dashboard/SalesChart";
@@ -64,7 +64,7 @@ export default function Dashboard() {
     { icon: Tags, label: "Categories", value: counts.categories, tone: "neutral" },
     { icon: Truck, label: "Suppliers", value: counts.suppliers, tone: "neutral" },
     { icon: ShoppingCart, label: "Total Sales", value: formatNumber(counts.salesCount), delta: "+8.1%" },
-    { icon: DollarSign, label: "Revenue", value: formatCurrency(totalRev), delta: "+12.4%", tone: "signal" },
+    { icon: IndianRupee, label: "Revenue", value: formatCurrency(totalRev), delta: "+12.4%", tone: "signal" },
     { icon: AlertTriangle, label: "Low Stock", value: lowCount, tone: "low" },
     { icon: XCircle, label: "Out of Stock", value: outCount, tone: "out" },
     { icon: Activity, label: "Inventory Value", value: formatCurrency(invValue), delta: "+3.5%", tone: "in" },

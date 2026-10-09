@@ -623,7 +623,7 @@ export default function Sales() {
             label="Product"
             options={products.map((p) => ({
               value: p.sku,
-              label: `${p.name} (${p.sku}) — ${p.quantity} in stock ($${p.price.toFixed(2)})`,
+              label: `${p.name} (${p.sku}) — ${p.quantity} in stock (${formatCurrency(p.price)})`,
             }))}
             value={form.product}
             onChange={(e) => setForm({ ...form, product: e.target.value })}
@@ -642,11 +642,11 @@ export default function Sales() {
           {/* Pricing summary preview */}
           {(() => {
             const p = products.find((prod) => prod.sku === form.product);
-            const total = p ? (p.price * Number(form.quantity || 1)).toFixed(2) : "0.00";
+            const total = p ? p.price * Number(form.quantity || 1) : 0;
             return (
               <div className="flex justify-between items-center rounded bg-graphite-800/5 p-2 text-xs font-mono dark:bg-paper-100/5">
                 <span className="text-graphite-600 dark:text-paper-300">Estimated Total:</span>
-                <span className="font-bold text-graphite-900 dark:text-paper-100 text-sm">${total}</span>
+                <span className="font-bold text-graphite-900 dark:text-paper-100 text-sm">{formatCurrency(total)}</span>
               </div>
             );
           })()}

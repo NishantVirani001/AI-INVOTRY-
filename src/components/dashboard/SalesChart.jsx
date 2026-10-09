@@ -39,8 +39,8 @@ export default function SalesChart() {
                 color: "#F5F6F4",
               }}
             />
-            <Area type="monotone" dataKey="sales" stroke="#F5C518" strokeWidth={2} fill="url(#salesFill)" name="Sales ($)" />
-            <Area type="monotone" dataKey="purchases" stroke="#4C8DFF" strokeWidth={2} fill="url(#purchasesFill)" name="Purchases ($)" />
+            <Area type="monotone" dataKey="sales" stroke="#F5C518" strokeWidth={2} fill="url(#salesFill)" name="Sales (₹)" />
+            <Area type="monotone" dataKey="purchases" stroke="#4C8DFF" strokeWidth={2} fill="url(#purchasesFill)" name="Purchases (₹)" />
           </AreaChart>
         </ResponsiveContainer>
       </div>

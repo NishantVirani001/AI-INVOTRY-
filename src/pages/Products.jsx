@@ -412,7 +412,7 @@ export default function Products() {
 
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="Selling Price ($)"
+              label="Selling Price (₹)"
               type="number"
               step="0.01"
               value={form.price}
@@ -420,7 +420,7 @@ export default function Products() {
               error={errors.price}
             />
             <Input
-              label="Unit Cost ($)"
+              label="Unit Cost (₹)"
               type="number"
               step="0.01"
               value={form.cost}

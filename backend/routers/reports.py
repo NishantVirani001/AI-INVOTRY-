@@ -86,9 +86,9 @@ def export_inventory_csv(db: Session = Depends(get_db)):
         "Category",
         "Supplier",
         "Quantity On Hand",
-        "Unit Price ($)",
-        "Unit Cost ($)",
-        "Total Valuation ($)",
+        "Unit Price (₹)",
+        "Unit Cost (₹)",
+        "Total Valuation (₹)",
         "Reorder Level",
         "Stock Status",
     ])

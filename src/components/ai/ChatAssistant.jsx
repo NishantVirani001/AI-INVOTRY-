@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Sparkles, X, Send, CheckCircle2, ShoppingCart, Loader2 } from "lucide-react";
 import aiService from "../../services/aiService";
 import { aiChatCannedResponses, mockPurchases } from "../../data/mockData";
+import { formatCurrency } from "../../utils/formatters";
 
 const WELCOME = {
   role: "assistant",
@@ -181,7 +182,7 @@ export default function ChatAssistant() {
                       <div>SKU: <span className="text-graphite-900 dark:text-paper-100 font-semibold">{m.action.sku}</span></div>
                       <div>Vendor: {m.action.supplierName}</div>
                       <div>Quantity: {m.action.quantity} units</div>
-                      <div>Total: ${m.action.estimatedCost?.toLocaleString()}</div>
+                      <div>Total: {formatCurrency(m.action.estimatedCost)}</div>
                     </div>
                     {m.actionExecuted ? (
                       <div className="flex items-center gap-1 text-[11px] font-semibold text-stock-in dark:text-stock-in">
@@ -219,7 +220,7 @@ export default function ChatAssistant() {
                     <div className="font-mono text-[11px] text-graphite-700 dark:text-paper-300 space-y-0.5">
                       <div>Invoice: <span className="text-graphite-900 dark:text-paper-100 font-semibold">{m.action.invoice}</span></div>
                       <div>Customer: {m.action.customer}</div>
-                      <div>Total: ${m.action.total?.toLocaleString()}</div>
+                      <div>Total: {formatCurrency(m.action.total)}</div>
                     </div>
                     {m.actionExecuted ? (
                       <div className="flex items-center gap-1 text-[11px] font-semibold text-stock-in dark:text-stock-in">

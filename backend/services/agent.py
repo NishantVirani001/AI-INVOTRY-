@@ -42,7 +42,7 @@ def tool_get_stock_status(query: str, db: Session) -> Dict[str, Any]:
             f"**{product.name}** (`{product.sku}`):\n"
             f"• Current Stock: **{product.quantity} units** ({status})\n"
             f"• Reorder Threshold: {product.reorder_level} units\n"
-            f"• Unit Price: ${product.price:.2f} (Cost: ${product.cost:.2f})\n"
+            f"• Unit Price: ₹{product.price:.2f} (Cost: ₹{product.cost:.2f})\n"
             f"• Preferred Supplier: {sup_name}"
         ),
     }
@@ -80,10 +80,10 @@ def tool_get_inventory_summary(db: Session) -> Dict[str, Any]:
         "revenue": revenue,
         "message": (
             f"📊 **Current Warehouse Summary:**\n"
-            f"• Total Inventory Valuation: **${total_val:,.2f}**\n"
+            f"• Total Inventory Valuation: **₹{total_val:,.2f}**\n"
             f"• Active SKUs: **{len(products)} products**\n"
             f"• Stock Health: {len(products) - low_stock - out_stock} healthy, {low_stock} low stock, {out_stock} out of stock\n"
-            f"• Total Sales Volume: **${revenue:,.2f}** across {sales} orders."
+            f"• Total Sales Volume: **₹{revenue:,.2f}** across {sales} orders."
         ),
     }
 
@@ -115,7 +115,7 @@ def tool_draft_purchase_order(product_query: str, quantity: int, db: Session) ->
             f"• **Product**: {product.name} (`{product.sku}`)\n"
             f"• **Quantity**: {quantity} units\n"
             f"• **Supplier**: {sup_name}\n"
-            f"• **Total Estimated Cost**: **${total_cost:,.2f}**\n\n"
+            f"• **Total Estimated Cost**: **₹{total_cost:,.2f}**\n\n"
             f"Click the confirmation button below to submit this order directly into the database."
         ),
     }
@@ -152,7 +152,7 @@ def tool_execute_purchase_order(product_id: str, quantity: int, db: Session) -> 
     return {
         "success": True,
         "poNumber": po_num,
-        "message": f"✅ Purchase Order **{po_num}** successfully issued to **{sup.name if sup else 'Supplier'}** for **{quantity} units** (${total_cost:,.2f}). It is now tracked in your Purchases ledger.",
+        "message": f"✅ Purchase Order **{po_num}** successfully issued to **{sup.name if sup else 'Supplier'}** for **{quantity} units** (₹{total_cost:,.2f}). It is now tracked in your Purchases ledger.",
     }
 
 def tool_list_pending_orders(db: Session) -> Dict[str, Any]:
@@ -167,7 +167,7 @@ def tool_list_pending_orders(db: Session) -> Dict[str, Any]:
     for o in pending:
         item_names = [f"{i.quantity}x {i.product.name if i.product else 'Item'}" for i in o.items]
         summary = ", ".join(item_names) if item_names else f"{len(o.items)} item(s)"
-        lines.append(f"• **{o.invoice}** from **{o.customer}** — {summary} (${o.total:,.2f})")
+        lines.append(f"• **{o.invoice}** from **{o.customer}** — {summary} (₹{o.total:,.2f})")
     
     first_pending = pending[0]
     return {
@@ -249,13 +249,13 @@ def query_groq_llm(user_prompt: str, db: Session) -> Optional[Dict[str, Any]]:
             cat = p.category_obj.name if p.category_obj else "General"
             sup = p.supplier_obj.name if p.supplier_obj else "Direct"
             catalog_summary.append(
-                f"- SKU: {p.sku} | Name: {p.name} | Qty: {p.quantity} | MinReorder: {p.reorder_level} | Price: ${p.price:.2f} | Cost: ${p.cost:.2f} | Cat: {cat} | Sup: {sup}"
+                f"- SKU: {p.sku} | Name: {p.name} | Qty: {p.quantity} | MinReorder: {p.reorder_level} | Price: ₹{p.price:.2f} | Cost: ₹{p.cost:.2f} | Cat: {cat} | Sup: {sup}"
             )
         catalog_str = "\n".join(catalog_summary) if catalog_summary else "No products in catalog yet."
 
         pending_orders_summary = []
         for o in pending_orders:
-            pending_orders_summary.append(f"- Invoice: {o.invoice} | Customer: {o.customer} | Total: ${o.total:.2f}")
+            pending_orders_summary.append(f"- Invoice: {o.invoice} | Customer: {o.customer} | Total: ₹{o.total:.2f}")
         pending_str = "\n".join(pending_orders_summary) if pending_orders_summary else "None"
 
         system_prompt = f"""You are StockPilot AI Copilot, an enterprise inventory, supply chain, and warehouse operations assistant.
@@ -298,7 +298,7 @@ Please ask me queries related to your warehouse operations, such as:
 
 LIVE DATABASE CONTEXT:
 • Total Active SKUs: {len(products)}
-• Total Inventory Valuation: ${total_val:,.2f}
+• Total Inventory Valuation: ₹{total_val:,.2f}
 • Out of Stock Count: {len(out_of_stock_prods)}
 • Low Stock Count: {len(low_stock_prods)}
 • Total Categories: {len(categories)} ({', '.join(c.name for c in categories) if categories else 'None'})

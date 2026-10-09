@@ -83,7 +83,7 @@ def get_notifications(db: Session = Depends(get_db)):
             notifications.append({
                 "id": notif_id,
                 "type": "order_pending",
-                "title": f"Incoming Order {o.invoice} from {o.customer} (${o.total:,.2f})",
+                "title": f"Incoming Order {o.invoice} from {o.customer} (₹{o.total:,.2f})",
                 "time": f"Awaiting your acceptance • {item_summary}",
                 "orderId": o.id,
                 "invoice": o.invoice,
