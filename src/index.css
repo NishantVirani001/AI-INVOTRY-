@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-paper-100 text-graphite-900 dark:bg-graphite-950 dark:text-paper-100 transition-colors duration-200;
+  }
+  /* Visible keyboard focus everywhere — accessibility floor */
+  :focus-visible {
+    @apply outline-none ring-2 ring-signal ring-offset-2 ring-offset-paper-100 dark:ring-offset-graphite-950;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-graphite-600/40 rounded-full;
+  }
+}
+
+@layer components {
+  /* Signature motif: hazard-tape strip used for stock-level indicators
+     across stat cards, table rows, and badges. */
+  .tape-track {
+    @apply relative h-1.5 w-full overflow-hidden rounded-full bg-graphite-800/10 dark:bg-paper-100/10;
+  }
+  .tape-fill {
+    @apply absolute inset-y-0 left-0 rounded-full;
+  }
+  .tape-fill::after {
+    content: "";
+    @apply absolute inset-0 bg-hazard-stripe opacity-30;
+    background-size: 10px 10px;
+  }
+
+  .manifest-label {
+    @apply font-mono text-[11px] uppercase tracking-widest text-graphite-500 dark:text-paper-300/50;
+  }
+
+  .panel {
+    @apply rounded-tag border border-graphite-800/10 bg-white shadow-panel dark:border-paper-100/10 dark:bg-graphite-900;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

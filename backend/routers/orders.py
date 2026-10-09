@@ -1,0 +1,272 @@
+import uuid
+from datetime import datetime
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from backend.database import get_db
+import backend.models.core as models
+
+router = APIRouter(prefix="/api/sales", tags=["Sales Orders"])
+
+class OrderItemInput(BaseModel):
+    product_sku: str
+    quantity: int
+
+class OrderCreate(BaseModel):
+    customer: str
+    product: str # SKU or product ID
+    quantity: int
+    status: Optional[str] = "Pending" # Default "Pending" for incoming customer order awaiting supplier acceptance
+
+class RejectInput(BaseModel):
+    reason: Optional[str] = "Rejected by supplier"
+
+@router.get("")
+def get_sales(db: Session = Depends(get_db)):
+    orders = db.query(models.Order).order_by(models.Order.date.desc()).all()
+    result = []
+    for o in orders:
+        total_items = sum(item.quantity for item in o.items) if o.items else 1
+        items_detail = []
+        for item in o.items:
+            prod_name = item.product.name if item.product else "Direct Catalog Item"
+            prod_sku = item.product.sku if item.product else ""
+            items_detail.append({
+                "id": item.id,
+                "productId": item.product_id,
+                "name": prod_name,
+                "sku": prod_sku,
+                "quantity": item.quantity,
+                "price": item.price,
+            })
+        result.append({
+            "id": o.id,
+            "invoice": o.invoice,
+            "customer": o.customer,
+            "items": total_items,
+            "itemsDetail": items_detail,
+            "total": o.total,
+            "status": o.status or "Completed",
+            "date": o.date.strftime("%Y-%m-%d") if o.date else datetime.utcnow().strftime("%Y-%m-%d"),
+        })
+    return result
+
+@router.post("")
+def create_sale(data: OrderCreate, db: Session = Depends(get_db)):
+    # Find product by SKU or ID
+    product = db.query(models.Product).filter(
+        (models.Product.sku == data.product) | (models.Product.id == data.product)
+    ).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product '{data.product}' not found.")
+
+    qty = int(data.quantity)
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be greater than 0.")
+
+    # Check if stock is sufficient
+    if product.quantity < qty:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock. Available: {product.quantity}, requested: {qty}."
+        )
+
+    total_price = round(product.price * qty, 2)
+    order_id = f"sl_{uuid.uuid4().hex[:8]}"
+    invoice_number = f"INV-{10240 + db.query(models.Order).count() + 1}"
+    order_status = data.status if data.status in ["Pending", "Accepted", "Completed"] else "Pending"
+
+    # If created directly as Completed (e.g. instant POS sale), deduct stock immediately
+    if order_status == "Completed":
+        product.quantity -= qty
+        tx = models.InventoryTransaction(
+            id=f"tx_{uuid.uuid4().hex[:8]}",
+            product_id=product.id,
+            type="stock-out",
+            quantity_change=-qty,
+            timestamp=datetime.utcnow(),
+            notes=f"Order {invoice_number} sold to {data.customer}",
+        )
+        db.add(tx)
+
+    # Create Order
+    new_order = models.Order(
+        id=order_id,
+        invoice=invoice_number,
+        customer=data.customer.strip(),
+        total=total_price,
+        status=order_status,
+        date=datetime.utcnow(),
+    )
+    db.add(new_order)
+
+    # Create Order Item
+    order_item = models.OrderItem(
+        id=f"oi_{uuid.uuid4().hex[:8]}",
+        order_id=order_id,
+        product_id=product.id,
+        quantity=qty,
+        price=product.price,
+    )
+    db.add(order_item)
+
+    db.commit()
+    db.refresh(new_order)
+
+    return {
+        "id": new_order.id,
+        "invoice": new_order.invoice,
+        "customer": new_order.customer,
+        "items": qty,
+        "itemsDetail": [{
+            "id": order_item.id,
+            "productId": product.id,
+            "name": product.name,
+            "sku": product.sku,
+            "quantity": qty,
+            "price": product.price,
+        }],
+        "total": new_order.total,
+        "status": new_order.status,
+        "date": new_order.date.strftime("%Y-%m-%d"),
+    }
+
+@router.put("/{order_id}/accept")
+def accept_sale_order(order_id: str, db: Session = Depends(get_db)):
+    """
+    Supplier accepts an incoming customer order:
+    1. Validates that the order exists and is currently Pending.
+    2. Checks product inventory stock.
+    3. Atomically deducts product stock.
+    4. Writes stock-out transaction to inventory audit ledger.
+    5. Sets order status to 'Accepted'.
+    6. Updates customer purchase metrics.
+    """
+    order = db.query(models.Order).filter(
+        (models.Order.id == order_id) | (models.Order.invoice == order_id)
+    ).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status == "Accepted":
+        return {"status": "ok", "message": f"Order {order.invoice} is already accepted.", "order": {"id": order.id, "status": order.status}}
+
+    if order.status == "Completed":
+        return {"status": "ok", "message": f"Order {order.invoice} is already completed.", "order": {"id": order.id, "status": order.status}}
+
+    if order.status == "Rejected":
+        raise HTTPException(status_code=400, detail=f"Cannot accept order {order.invoice} because it was previously rejected.")
+
+    # Deduct stock for all items
+    for item in order.items:
+        prod = db.query(models.Product).filter(models.Product.id == item.product_id).first()
+        if prod:
+            if prod.quantity < item.quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot accept order: Insufficient stock for {prod.name} ({prod.sku}). Available: {prod.quantity}, Required: {item.quantity}"
+                )
+            prod.quantity -= item.quantity
+
+            # Audit ledger
+            tx = models.InventoryTransaction(
+                id=f"tx_{uuid.uuid4().hex[:8]}",
+                product_id=prod.id,
+                type="stock-out",
+                quantity_change=-item.quantity,
+                timestamp=datetime.utcnow(),
+                notes=f"Supplier accepted customer order {order.invoice} for {order.customer}",
+            )
+            db.add(tx)
+
+    order.status = "Accepted"
+
+    # Update customer metrics if customer exists
+    customer = db.query(models.Customer).filter(models.Customer.name.ilike(order.customer.strip())).first()
+    if customer:
+        customer.total_orders = (customer.total_orders or 0) + 1
+        customer.total_spent = round((customer.total_spent or 0.0) + order.total, 2)
+        customer.last_order_date = datetime.utcnow()
+
+    db.commit()
+    db.refresh(order)
+
+    return {
+        "status": "ok",
+        "id": order.id,
+        "invoice": order.invoice,
+        "customer": order.customer,
+        "total": order.total,
+        "orderStatus": order.status,
+        "message": f"Order {order.invoice} accepted! Inventory stock has been deducted.",
+    }
+
+@router.put("/{order_id}/reject")
+def reject_sale_order(order_id: str, data: Optional[RejectInput] = None, db: Session = Depends(get_db)):
+    """
+    Supplier rejects a customer order.
+    If the order was already accepted, stock is refunded back into inventory.
+    """
+    order = db.query(models.Order).filter(
+        (models.Order.id == order_id) | (models.Order.invoice == order_id)
+    ).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # If was accepted or completed, restore stock
+    if order.status in ["Accepted", "Completed"]:
+        for item in order.items:
+            prod = db.query(models.Product).filter(models.Product.id == item.product_id).first()
+            if prod:
+                prod.quantity += item.quantity
+                tx = models.InventoryTransaction(
+                    id=f"tx_{uuid.uuid4().hex[:8]}",
+                    product_id=prod.id,
+                    type="stock-in",
+                    quantity_change=item.quantity,
+                    timestamp=datetime.utcnow(),
+                    notes=f"Restored stock from rejected order {order.invoice}",
+                )
+                db.add(tx)
+
+    order.status = "Rejected"
+    db.commit()
+    db.refresh(order)
+
+    return {
+        "status": "ok",
+        "id": order.id,
+        "invoice": order.invoice,
+        "customer": order.customer,
+        "orderStatus": order.status,
+        "message": f"Order {order.invoice} has been rejected.",
+    }
+
+@router.put("/{order_id}/complete")
+def complete_sale_order(order_id: str, db: Session = Depends(get_db)):
+    """
+    Supplier marks an accepted order as Completed / Fulfilled.
+    """
+    order = db.query(models.Order).filter(
+        (models.Order.id == order_id) | (models.Order.invoice == order_id)
+    ).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order.status = "Completed"
+    db.commit()
+    db.refresh(order)
+
+    return {
+        "status": "ok",
+        "id": order.id,
+        "invoice": order.invoice,
+        "customer": order.customer,
+        "orderStatus": order.status,
+        "message": f"Order {order.invoice} marked as Completed / Delivered.",
+    }
