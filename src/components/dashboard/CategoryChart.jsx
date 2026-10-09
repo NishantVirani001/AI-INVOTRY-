@@ -25,9 +25,10 @@ export default function CategoryChart({ data }) {
   const [items, setItems] = useState(data || []);
 
   useEffect(() => {
-    if (data && data.length > 0) {
+    if (Array.isArray(data)) {
       setItems(data);
-    } else {
+    } else if (data === undefined) {
+      // Standalone mode: fetch own data
       dashboardService.getStats()
         .then((res) => {
           if (res?.categoryDistribution && res.categoryDistribution.length > 0) {

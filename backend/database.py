@@ -28,7 +28,14 @@ if DATABASE_URL and not DATABASE_URL.startswith("sqlite") and "[YOUR-" not in DA
     elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
     
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=15,
+        max_overflow=20,
+        pool_recycle=300,
+        pool_timeout=20,
+    )
 else:
     SQLALCHEMY_DATABASE_URL = "sqlite:///./inventory.db"
     engine = create_engine(

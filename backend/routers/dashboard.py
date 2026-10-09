@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -5,8 +6,21 @@ import backend.models.core as models
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
+_stats_cache = None
+_stats_cache_time = 0
+
+def invalidate_dashboard_cache():
+    global _stats_cache, _stats_cache_time
+    _stats_cache = None
+    _stats_cache_time = 0
+
 @router.get("/stats")
 def get_dashboard_stats(db: Session = Depends(get_db)):
+    global _stats_cache, _stats_cache_time
+    now = time.time()
+    if _stats_cache is not None and (now - _stats_cache_time) < 10.0:
+        return _stats_cache
+
     products = db.query(models.Product).all()
     
     total_value = sum(p.quantity * p.price for p in products)
@@ -59,7 +73,6 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 
     # Sales vs Purchases 7-day trend
     days_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    orders = db.query(models.Order).all()
     purchases = db.query(models.PurchaseOrder).all()
     sales_trend = []
     base_sales = total_revenue / 7.0 if total_revenue > 0 else 4000.0
@@ -82,7 +95,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
             "level": max(50, total_units + offset),
         })
 
-    return {
+    result = {
         "totalInventoryValue": round(total_value, 2),
         "totalRevenue": round(total_revenue, 2),
         "lowStockCount": low_stock,
@@ -96,4 +109,6 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         "salesTrend": sales_trend,
         "inventoryLevels": inv_levels,
     }
-
+    _stats_cache = result
+    _stats_cache_time = now
+    return result

@@ -110,13 +110,13 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <SalesChart data={liveStats?.salesTrend} />
+        <SalesChart data={liveStats ? liveStats.salesTrend : null} />
         <AIInsightsPanel />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <InventoryChart data={liveStats?.inventoryLevels} />
-        <CategoryChart data={liveStats?.categoryDistribution} />
+        <InventoryChart data={liveStats ? liveStats.inventoryLevels : null} />
+        <CategoryChart data={liveStats ? liveStats.categoryDistribution : null} />
         <RecentActivityFeed activities={liveStats?.recentActivities} />
       </div>
     </div>

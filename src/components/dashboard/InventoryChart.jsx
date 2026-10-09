@@ -15,9 +15,10 @@ export default function InventoryChart({ data }) {
   const [chartData, setChartData] = useState(data || []);
 
   useEffect(() => {
-    if (data && data.length > 0) {
+    if (Array.isArray(data)) {
       setChartData(data);
-    } else {
+    } else if (data === undefined) {
+      // Standalone mode: fetch own data
       dashboardService.getStats()
         .then((res) => {
           if (res?.inventoryLevels && res.inventoryLevels.length > 0) {
