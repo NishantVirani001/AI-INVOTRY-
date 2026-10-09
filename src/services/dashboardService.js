@@ -1,7 +1,10 @@
 import apiClient from "./apiClient";
 
 export const dashboardService = {
-  getStats: () => apiClient.get("/api/dashboard/stats"),
+  getStats: (force = false) =>
+    apiClient.get("/api/dashboard/stats", force ? { refresh: "1" } : undefined, {
+      bypassCache: force,
+    }),
 };
 
 export default dashboardService;

@@ -79,21 +79,21 @@ export default function Products() {
 
       const prods = prodsData.status === "fulfilled" && Array.isArray(prodsData.value)
         ? prodsData.value
-        : mockProducts;
+        : [];
       const cats = catsData.status === "fulfilled" && Array.isArray(catsData.value)
         ? catsData.value
-        : mockCategories;
+        : [];
       const sups = supsData.status === "fulfilled" && Array.isArray(supsData.value)
         ? supsData.value
-        : mockSuppliers;
+        : [];
 
       setProducts(prods);
       setCategories(cats);
       setSuppliers(sups);
     } catch {
-      setProducts(mockProducts);
-      setCategories(mockCategories);
-      setSuppliers(mockSuppliers);
+      setProducts([]);
+      setCategories([]);
+      setSuppliers([]);
     } finally {
       setLoading(false);
     }
@@ -101,6 +101,12 @@ export default function Products() {
 
   useEffect(() => {
     loadData();
+
+    const handleUpdate = () => loadData();
+    window.addEventListener("stockpilot-data-updated", handleUpdate);
+    return () => {
+      window.removeEventListener("stockpilot-data-updated", handleUpdate);
+    };
   }, []);
 
   const filtered = useMemo(() => {

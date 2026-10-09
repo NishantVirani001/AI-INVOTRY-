@@ -1,13 +1,38 @@
 import uuid
+import time
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
 import backend.models.core as models
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
+
+# ── Server-side cache (30s TTL) ──────────────────────────────────
+_products_cache = {}
+_products_cache_time = 0
+
+def invalidate_products_cache():
+    global _products_cache, _products_cache_time
+    _products_cache = {}
+    _products_cache_time = 0
+    try:
+        from backend.routers.dashboard import invalidate_dashboard_cache
+        invalidate_dashboard_cache()
+    except Exception:
+        pass
+    try:
+        from backend.routers.notifications import invalidate_notifications_cache
+        invalidate_notifications_cache()
+    except Exception:
+        pass
+    try:
+        from backend.routers.reports import invalidate_reports_cache
+        invalidate_reports_cache()
+    except Exception:
+        pass
 
 class ProductCreateUpdate(BaseModel):
     name: str
@@ -19,16 +44,17 @@ class ProductCreateUpdate(BaseModel):
     quantity: int
     reorderLevel: int
 
-def format_product(p: models.Product, db: Session):
+def format_product(p: models.Product, db: Session = None):
+    # Uses already-loaded relationships (joinedload) — no extra queries
     cat_name = p.category_obj.name if p.category_obj else (p.category_id or "General")
     sup_name = p.supplier_obj.name if p.supplier_obj else (p.supplier_id or "Direct")
     
     if p.quantity <= 0:
-        status = "out"
+        stock_status = "out"
     elif p.quantity <= p.reorder_level:
-        status = "low"
+        stock_status = "low"
     else:
-        status = "in"
+        stock_status = "in"
 
     # Simple velocity heuristic for now (based on quantity/reorder ratio)
     velocity = "fast" if p.reorder_level >= 15 else "slow"
@@ -45,7 +71,7 @@ def format_product(p: models.Product, db: Session):
         "cost": p.cost,
         "quantity": p.quantity,
         "reorderLevel": p.reorder_level,
-        "stockStatus": status,
+        "stockStatus": stock_status,
         "velocity": velocity,
         "expiry": p.expiry_date.strftime("%Y-%m-%d") if p.expiry_date else None,
         "updated": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -58,28 +84,48 @@ def get_products(
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    query = db.query(models.Product)
+    global _products_cache, _products_cache_time
+    now = time.time()
+    cache_key = f"{search or ''}:{category or ''}:{status or ''}"
+
+    if (now - _products_cache_time) < 30.0 and cache_key in _products_cache:
+        return _products_cache[cache_key]
+
+    # Single query with JOINs for category + supplier (eliminates N+1)
+    query = db.query(models.Product).options(
+        joinedload(models.Product.category_obj),
+        joinedload(models.Product.supplier_obj),
+    )
     if search:
         s = f"%{search.strip()}%"
         query = query.filter((models.Product.name.ilike(s)) | (models.Product.sku.ilike(s)))
-    
-    products = query.all()
-    formatted = [format_product(p, db) for p in products]
 
     if category and category != "all":
-        formatted = [p for p in formatted if p["category"] == category or p["categoryId"] == category]
+        query = query.filter(
+            (models.Product.category_id == category) |
+            (models.Product.category_obj.has(models.Category.name == category))
+        )
+
+    products = query.all()
+    formatted = [format_product(p) for p in products]
 
     if status and status != "all":
         formatted = [p for p in formatted if p["stockStatus"] == status]
+
+    _products_cache[cache_key] = formatted
+    _products_cache_time = now
 
     return formatted
 
 @router.get("/{product_id}")
 def get_product(product_id: str, db: Session = Depends(get_db)):
-    p = db.query(models.Product).filter(models.Product.id == product_id).first()
+    p = db.query(models.Product).options(
+        joinedload(models.Product.category_obj),
+        joinedload(models.Product.supplier_obj),
+    ).filter(models.Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
-    return format_product(p, db)
+    return format_product(p)
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_product(data: ProductCreateUpdate, db: Session = Depends(get_db)):
@@ -123,7 +169,8 @@ def create_product(data: ProductCreateUpdate, db: Session = Depends(get_db)):
     db.add(new_p)
     db.commit()
     db.refresh(new_p)
-    return format_product(new_p, db)
+    invalidate_products_cache()
+    return format_product(new_p)
 
 @router.put("/{product_id}")
 def update_product(product_id: str, data: ProductCreateUpdate, db: Session = Depends(get_db)):
@@ -160,7 +207,8 @@ def update_product(product_id: str, data: ProductCreateUpdate, db: Session = Dep
 
     db.commit()
     db.refresh(p)
-    return format_product(p, db)
+    invalidate_products_cache()
+    return format_product(p)
 
 @router.delete("/{product_id}")
 def delete_product(product_id: str, db: Session = Depends(get_db)):
@@ -170,6 +218,7 @@ def delete_product(product_id: str, db: Session = Depends(get_db)):
 
     db.delete(p)
     db.commit()
+    invalidate_products_cache()
     return {"status": "ok", "message": f"Product {product_id} deleted"}
 
 class AdjustStockRequest(BaseModel):
@@ -201,7 +250,8 @@ def adjust_product_stock(product_id: str, data: AdjustStockRequest, db: Session 
     db.add(tx)
     db.commit()
     db.refresh(p)
-    return format_product(p, db)
+    invalidate_products_cache()
+    return format_product(p)
 
 class ShelfAuditRequest(BaseModel):
     sku: str

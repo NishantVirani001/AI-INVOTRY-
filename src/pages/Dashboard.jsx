@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Boxes, Tags, Truck, ShoppingCart, IndianRupee, AlertTriangle, XCircle, Activity, Bell } from "lucide-react";
+import { Boxes, Tags, Truck, ShoppingCart, IndianRupee, AlertTriangle, XCircle, Activity, RefreshCw } from "lucide-react";
 import PageHeader from "../components/common/PageHeader";
 import StatCard from "../components/dashboard/StatCard";
 import SalesChart from "../components/dashboard/SalesChart";
@@ -9,11 +9,6 @@ import CategoryChart from "../components/dashboard/CategoryChart";
 import RecentActivityFeed from "../components/dashboard/RecentActivityFeed";
 import AIInsightsPanel from "../components/dashboard/AIInsightsPanel";
 import dashboardService from "../services/dashboardService";
-import productService from "../services/productService";
-import categoryService from "../services/categoryService";
-import supplierService from "../services/supplierService";
-import orderService from "../services/orderService";
-import { dashboardStats } from "../data/mockData";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { useAuth } from "../context/AuthContext";
 import CustomerPortal from "./CustomerPortal";
@@ -24,64 +19,174 @@ export default function Dashboard() {
   if (user?.role === "Customer") {
     return <CustomerPortal />;
   }
-  const [liveStats, setLiveStats] = useState(null);
-  const [counts, setCounts] = useState({
-    products: 12,
-    categories: 5,
-    suppliers: 4,
-    salesCount: 5,
-  });
 
-  useEffect(() => {
-    async function fetchDashboard() {
-      try {
-        const [statsData, prodsData, catsData, supsData, salesData] = await Promise.allSettled([
-          dashboardService.getStats(),
-          productService.getAll(),
-          categoryService.getAll(),
-          supplierService.getAll(),
-          orderService.getAll(),
-        ]);
-
-        if (statsData.status === "fulfilled" && statsData.value) {
-          setLiveStats(statsData.value);
-        }
-        setCounts({
-          products: prodsData.status === "fulfilled" ? prodsData.value.length : 12,
-          categories: catsData.status === "fulfilled" ? catsData.value.length : 5,
-          suppliers: supsData.status === "fulfilled" ? supsData.value.length : 4,
-          salesCount: salesData.status === "fulfilled" ? salesData.value.length : 5,
-        });
-      } catch {
-        // Fallback to initial mock if offline
-      }
+  // Pre-load from persisted live state so previous real session data is instant with zero dummy flash
+  const [liveStats, setLiveStats] = useState(() => {
+    try {
+      const cached = localStorage.getItem("stockpilot_live_stats");
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
     }
-    fetchDashboard();
+  });
+  const [loading, setLoading] = useState(!liveStats);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchDashboard = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    else setIsRefreshing(true);
+
+    try {
+      // Force refresh queries live real database metrics immediately
+      const data = await dashboardService.getStats(true);
+      if (data) {
+        setLiveStats(data);
+        try {
+          localStorage.setItem("stockpilot_live_stats", JSON.stringify(data));
+        } catch {
+          // Ignore quota errors
+        }
+      }
+    } catch (err) {
+      console.error("Dashboard live fetch error:", err);
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
   }, []);
 
-  const totalRev = liveStats?.totalRevenue ?? dashboardStats.revenue;
-  const invValue = liveStats?.totalInventoryValue ?? 15308.4;
-  const lowCount = liveStats?.lowStockCount ?? dashboardStats.lowStock;
-  const outCount = liveStats?.outOfStockCount ?? dashboardStats.outOfStock;
+  useEffect(() => {
+    fetchDashboard(Boolean(liveStats));
+
+    // 1. In-tab continuous sync whenever any stock or product is added or edited
+    const handleUpdate = () => fetchDashboard(true);
+    window.addEventListener("stockpilot-data-updated", handleUpdate);
+    window.addEventListener("focus", handleUpdate);
+
+    // 2. Cross-tab continuous sync via BroadcastChannel
+    let bc;
+    try {
+      if (window.BroadcastChannel) {
+        bc = new BroadcastChannel("stockpilot-sync");
+        bc.onmessage = () => fetchDashboard(true);
+      }
+    } catch {
+      // Ignore broadcast channel errors in restricted environments
+    }
+
+    // 3. Storage event fallback for cross-browser synchronization
+    const handleStorage = (e) => {
+      if (e.key === "stockpilot-sync-ts") {
+        fetchDashboard(true);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+
+    // 4. Continuous live telemetry background polling every 7 seconds
+    const interval = setInterval(() => {
+      fetchDashboard(true);
+    }, 7000);
+
+    return () => {
+      window.removeEventListener("stockpilot-data-updated", handleUpdate);
+      window.removeEventListener("focus", handleUpdate);
+      window.removeEventListener("storage", handleStorage);
+      if (bc) bc.close();
+      clearInterval(interval);
+    };
+  }, [fetchDashboard, liveStats]);
+
+  // Purely dynamic real entity values - zero dummy fallbacks
+  const isPending = loading && !liveStats;
+  const totalProducts = liveStats ? liveStats.totalProducts : null;
+  const totalCategories = liveStats ? liveStats.totalCategories : null;
+  const totalSuppliers = liveStats ? liveStats.totalSuppliers : null;
+  const totalSalesCount = liveStats ? liveStats.totalSalesCount : null;
+  const totalRev = liveStats ? liveStats.totalRevenue : null;
+  const lowCount = liveStats ? liveStats.lowStockCount : null;
+  const outCount = liveStats ? liveStats.outOfStockCount : null;
+  const invValue = liveStats ? liveStats.totalInventoryValue : null;
 
   const stats = [
-    { icon: Boxes, label: "Total Products", value: formatNumber(counts.products), delta: "+4.2%" },
-    { icon: Tags, label: "Categories", value: counts.categories, tone: "neutral" },
-    { icon: Truck, label: "Suppliers", value: counts.suppliers, tone: "neutral" },
-    { icon: ShoppingCart, label: "Total Sales", value: formatNumber(counts.salesCount), delta: "+8.1%" },
-    { icon: IndianRupee, label: "Revenue", value: formatCurrency(totalRev), delta: "+12.4%", tone: "signal" },
-    { icon: AlertTriangle, label: "Low Stock", value: lowCount, tone: "low" },
-    { icon: XCircle, label: "Out of Stock", value: outCount, tone: "out" },
-    { icon: Activity, label: "Inventory Value", value: formatCurrency(invValue), delta: "+3.5%", tone: "in" },
+    {
+      icon: Boxes,
+      label: "Total Products",
+      value: typeof totalProducts === "number" ? formatNumber(totalProducts) : "...",
+      delta: liveStats ? `${totalProducts} registered` : undefined,
+      loading: isPending,
+    },
+    {
+      icon: Tags,
+      label: "Categories",
+      value: typeof totalCategories === "number" ? totalCategories : "...",
+      tone: "neutral",
+      loading: isPending,
+    },
+    {
+      icon: Truck,
+      label: "Suppliers",
+      value: typeof totalSuppliers === "number" ? totalSuppliers : "...",
+      tone: "neutral",
+      loading: isPending,
+    },
+    {
+      icon: ShoppingCart,
+      label: "Total Sales",
+      value: typeof totalSalesCount === "number" ? formatNumber(totalSalesCount) : "...",
+      delta: liveStats ? `${totalSalesCount} orders` : undefined,
+      loading: isPending,
+    },
+    {
+      icon: IndianRupee,
+      label: "Revenue",
+      value: typeof totalRev === "number" ? formatCurrency(totalRev) : "...",
+      tone: "signal",
+      loading: isPending,
+    },
+    {
+      icon: AlertTriangle,
+      label: "Low Stock",
+      value: typeof lowCount === "number" ? lowCount : "...",
+      tone: "low",
+      loading: isPending,
+    },
+    {
+      icon: XCircle,
+      label: "Out of Stock",
+      value: typeof outCount === "number" ? outCount : "...",
+      tone: "out",
+      loading: isPending,
+    },
+    {
+      icon: Activity,
+      label: "Inventory Value",
+      value: typeof invValue === "number" ? formatCurrency(invValue) : "...",
+      tone: "in",
+      loading: isPending,
+    },
   ];
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Overview"
-        title={`Good to see you, ${user?.name?.split(" ")[0] || "Pilot"}`}
-        subtitle="Live telemetry and stock health across your warehouse operations."
-      />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+        <PageHeader
+          eyebrow="Live Warehouse Telemetry"
+          title={`Good to see you, ${user?.name?.split(" ")[0] || "Pilot"}`}
+          subtitle="Real-time synchronized inventory metrics and warehouse stock telemetry."
+        />
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => fetchDashboard(false)}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 rounded-lg border border-graphite-800/15 bg-white/50 px-3 py-1.5 text-xs font-semibold text-graphite-700 hover:bg-white shadow-sm dark:border-paper-100/15 dark:bg-graphite-800/60 dark:text-paper-200 dark:hover:bg-graphite-800 transition-all"
+            title="Refresh live metrics immediately"
+          >
+            <RefreshCw size={13} className={isRefreshing ? "animate-spin text-signal" : ""} />
+            <span>{isRefreshing ? "Syncing..." : "Sync Live Data"}</span>
+          </button>
+        </div>
+      </div>
 
       {liveStats?.pendingOrders > 0 && (
         <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 shadow-sm dark:border-amber-500/20 dark:bg-amber-500/5">
@@ -95,7 +200,7 @@ export default function Dashboard() {
                 <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white uppercase tracking-wider">Action Needed</span>
               </p>
               <p className="text-xs text-graphite-600 dark:text-paper-300/80 mt-0.5">
-                Customers have submitted orders. Review product quantities, check available warehouse stock, and accept orders to deduct inventory.
+                Review quantities, check available warehouse stock, and accept orders to deduct inventory.
               </p>
             </div>
           </div>
@@ -108,21 +213,29 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Primary KPI stat cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
         {stats.map((s) => (
           <StatCard key={s.label} {...s} />
         ))}
       </div>
 
+      {/* Row 1: Sales vs Purchases & Real AI Insights */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <SalesChart data={liveStats ? liveStats.salesTrend : null} />
         <AIInsightsPanel />
       </div>
 
+      {/* Row 2: Dynamic Real Product Stock Chart, Category Distribution & Live Activity Ledger */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <InventoryChart data={liveStats ? liveStats.inventoryLevels : null} />
+        <InventoryChart
+          productStock={liveStats?.productStock}
+          inventoryLevels={liveStats?.inventoryLevels}
+          categoryDistribution={liveStats?.categoryDistribution}
+          loading={isPending}
+        />
         <CategoryChart data={liveStats ? liveStats.categoryDistribution : null} />
-        <RecentActivityFeed activities={liveStats?.recentActivities} />
+        <RecentActivityFeed activities={liveStats?.recentActivities} loading={isPending} />
       </div>
     </div>
   );

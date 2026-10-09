@@ -1,7 +1,9 @@
+import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
 from backend.database import get_db
 import backend.models.core as models
 
@@ -11,6 +13,13 @@ router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 # In-memory dismissed notification set to respect dismissal during session
 _dismissed_ids = set()
+_notif_cache = {}
+_notif_cache_time = 0
+
+def invalidate_notifications_cache():
+    global _notif_cache, _notif_cache_time
+    _notif_cache = {}
+    _notif_cache_time = 0
 
 @router.get("")
 def get_notifications(
@@ -18,6 +27,12 @@ def get_notifications(
     db: Session = Depends(get_db),
     current_user: Optional[models.User] = Depends(get_optional_current_user)
 ):
+    global _notif_cache, _notif_cache_time
+    now_ts = time.time()
+    cache_key = f"{customer or ''}:{current_user.name if current_user else 'anon'}:{current_user.role if current_user else ''}"
+    if (now_ts - _notif_cache_time) < 15.0 and cache_key in _notif_cache:
+        return _notif_cache[cache_key]
+
     notifications = []
     now = datetime.utcnow()
 
@@ -29,7 +44,9 @@ def get_notifications(
     # CUSTOMER NOTIFICATIONS: Personal Order Updates Only
     # ==========================================
     if is_customer_view:
-        query = db.query(models.Order)
+        query = db.query(models.Order).options(
+            joinedload(models.Order.items).joinedload(models.OrderItem.product)
+        )
         if customer_identifier:
             query = query.filter(models.Order.customer.ilike(f"%{customer_identifier.strip()}%"))
         my_orders = query.order_by(models.Order.date.desc()).limit(15).all()
@@ -81,15 +98,23 @@ def get_notifications(
                     "isCustomer": True,
                 })
 
+        _notif_cache[cache_key] = notifications
+        _notif_cache_time = now_ts
         return notifications
 
     # ==========================================
     # OPERATIONS / MANAGER NOTIFICATIONS: Warehouse Alerts & Incoming Orders
     # ==========================================
-    products = db.query(models.Product).all()
+    # Filter only relevant products in SQL rather than full table scan
+    alert_products = db.query(models.Product).filter(
+        or_(
+            models.Product.quantity <= models.Product.reorder_level,
+            models.Product.expiry_date.isnot(None)
+        )
+    ).all()
 
-    # 1. Out of stock products
-    for p in products:
+    # 1. Out of stock & low stock
+    for p in alert_products:
         if p.quantity <= 0:
             notif_id = f"notif_out_{p.id}"
             if notif_id not in _dismissed_ids:
@@ -101,10 +126,7 @@ def get_notifications(
                     "productId": p.id,
                     "sku": p.sku,
                 })
-
-    # 2. Low stock products (below reorder level)
-    for p in products:
-        if 0 < p.quantity <= p.reorder_level:
+        elif p.quantity <= p.reorder_level:
             notif_id = f"notif_low_{p.id}"
             if notif_id not in _dismissed_ids:
                 notifications.append({
@@ -116,8 +138,8 @@ def get_notifications(
                     "sku": p.sku,
                 })
 
-    # 3. Expiry dates within 30 days
-    for p in products:
+    # 2. Expiry dates within 30 days
+    for p in alert_products:
         if p.expiry_date:
             days_left = (p.expiry_date - now).days
             if 0 <= days_left <= 30:
@@ -132,7 +154,7 @@ def get_notifications(
                         "sku": p.sku,
                     })
 
-    # 4. Pending purchase orders
+    # 3. Pending purchase orders
     pending_pos = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.status == "Pending").all()
     for po in pending_pos:
         notif_id = f"notif_po_{po.id}"
@@ -145,8 +167,15 @@ def get_notifications(
                 "poId": po.id,
             })
 
-    # 5. Incoming customer orders awaiting supplier/manager acceptance
-    pending_orders = db.query(models.Order).filter(models.Order.status == "Pending").order_by(models.Order.date.desc()).all()
+    # 4. Incoming customer orders awaiting supplier/manager acceptance (with eager loading)
+    pending_orders = (
+        db.query(models.Order)
+        .options(joinedload(models.Order.items).joinedload(models.OrderItem.product))
+        .filter(models.Order.status == "Pending")
+        .order_by(models.Order.date.desc())
+        .limit(20)
+        .all()
+    )
     for o in pending_orders:
         notif_id = f"notif_order_{o.id}"
         if notif_id not in _dismissed_ids:
@@ -162,6 +191,8 @@ def get_notifications(
                 "total": o.total,
             })
 
+    _notif_cache[cache_key] = notifications
+    _notif_cache_time = now_ts
     return notifications
 
 @router.delete("/{notification_id}")

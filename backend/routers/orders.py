@@ -1,15 +1,30 @@
 import uuid
+import time
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
 import backend.models.core as models
 from backend.auth_utils import get_optional_current_user
 from backend.routers.dashboard import invalidate_dashboard_cache
+from backend.routers.notifications import invalidate_notifications_cache
+from backend.routers.products import invalidate_products_cache
 
 router = APIRouter(prefix="/api/sales", tags=["Sales Orders"])
+
+# ── Server-side cache (15s TTL) ──────────────────────────────────
+_sales_cache = {}  # keyed by customer filter
+_sales_cache_time = 0
+
+def invalidate_sales_cache():
+    global _sales_cache, _sales_cache_time
+    _sales_cache = {}
+    _sales_cache_time = 0
+    invalidate_dashboard_cache()
+    invalidate_notifications_cache()
+    invalidate_products_cache()
 
 class OrderItemInput(BaseModel):
     product_sku: str
@@ -26,7 +41,18 @@ class RejectInput(BaseModel):
 
 @router.get("")
 def get_sales(customer: Optional[str] = None, db: Session = Depends(get_db)):
-    query = db.query(models.Order)
+    global _sales_cache, _sales_cache_time
+    now = time.time()
+    cache_key = (customer or "").strip().lower()
+
+    # Return cached result within TTL
+    if (now - _sales_cache_time) < 30.0 and cache_key in _sales_cache:
+        return _sales_cache[cache_key]
+
+    # Single query with JOINs: orders → items → products (eliminates N+1)
+    query = db.query(models.Order).options(
+        joinedload(models.Order.items).joinedload(models.OrderItem.product),
+    )
     if customer:
         query = query.filter(models.Order.customer.ilike(f"%{customer.strip()}%"))
     orders = query.order_by(models.Order.date.desc()).all()
@@ -55,6 +81,9 @@ def get_sales(customer: Optional[str] = None, db: Session = Depends(get_db)):
             "status": o.status or "Completed",
             "date": o.date.strftime("%Y-%m-%d") if o.date else datetime.utcnow().strftime("%Y-%m-%d"),
         })
+
+    _sales_cache[cache_key] = result
+    _sales_cache_time = now
     return result
 
 @router.post("")
@@ -135,7 +164,7 @@ def create_sale(data: OrderCreate, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(new_order)
-    invalidate_dashboard_cache()
+    invalidate_sales_cache()
 
     return {
         "id": new_order.id,
@@ -226,7 +255,7 @@ def accept_sale_order(
 
     db.commit()
     db.refresh(order)
-    invalidate_dashboard_cache()
+    invalidate_sales_cache()
 
     return {
         "status": "ok",
@@ -281,7 +310,7 @@ def reject_sale_order(
     order.status = "Rejected"
     db.commit()
     db.refresh(order)
-    invalidate_dashboard_cache()
+    invalidate_sales_cache()
 
     return {
         "status": "ok",
@@ -307,7 +336,7 @@ def complete_sale_order(order_id: str, db: Session = Depends(get_db)):
     order.status = "Completed"
     db.commit()
     db.refresh(order)
-    invalidate_dashboard_cache()
+    invalidate_sales_cache()
 
     return {
         "status": "ok",

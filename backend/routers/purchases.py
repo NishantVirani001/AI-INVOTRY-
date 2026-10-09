@@ -1,12 +1,22 @@
+import time
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
 import backend.models.core as models
+from backend.routers.dashboard import invalidate_dashboard_cache
 
 router = APIRouter(prefix="/api/purchases", tags=["Purchase Orders"])
+
+_purchases_cache = None
+_purchases_cache_time = 0
+
+def invalidate_purchases_cache():
+    global _purchases_cache, _purchases_cache_time
+    _purchases_cache = None
+    _purchases_cache_time = 0
 
 class PurchaseCreate(BaseModel):
     supplier: str # Name or ID
@@ -15,7 +25,21 @@ class PurchaseCreate(BaseModel):
 
 @router.get("")
 def get_purchases(db: Session = Depends(get_db)):
-    pos = db.query(models.PurchaseOrder).order_by(models.PurchaseOrder.date.desc()).all()
+    global _purchases_cache, _purchases_cache_time
+    now = time.time()
+    if _purchases_cache is not None and (now - _purchases_cache_time) < 30.0:
+        return _purchases_cache
+
+    # Single SQL query with JOINs for supplier and items (eliminates N+1)
+    pos = (
+        db.query(models.PurchaseOrder)
+        .options(
+            joinedload(models.PurchaseOrder.supplier),
+            joinedload(models.PurchaseOrder.items),
+        )
+        .order_by(models.PurchaseOrder.date.desc())
+        .all()
+    )
     result = []
     for po in pos:
         supplier_name = po.supplier.name if po.supplier else "Direct"
@@ -29,6 +53,9 @@ def get_purchases(db: Session = Depends(get_db)):
             "status": po.status or "Pending",
             "date": po.date.strftime("%Y-%m-%d") if po.date else datetime.utcnow().strftime("%Y-%m-%d"),
         })
+
+    _purchases_cache = result
+    _purchases_cache_time = now
     return result
 
 @router.post("")
@@ -79,6 +106,8 @@ def create_purchase(data: PurchaseCreate, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(new_po)
+    invalidate_purchases_cache()
+    invalidate_dashboard_cache()
 
     return {
         "id": new_po.id,
@@ -118,4 +147,8 @@ def receive_purchase_order(po_id: str, db: Session = Depends(get_db)):
             db.add(tx)
 
     db.commit()
+    invalidate_purchases_cache()
+    invalidate_dashboard_cache()
+    from backend.routers.products import invalidate_products_cache
+    invalidate_products_cache()
     return {"status": "ok", "message": f"PO {po.po_number} marked as Received and inventory updated."}

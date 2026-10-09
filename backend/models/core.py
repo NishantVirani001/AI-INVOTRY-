@@ -34,14 +34,14 @@ class Product(Base):
     id = Column(String, primary_key=True, index=True)
     sku = Column(String, unique=True, index=True)
     name = Column(String, index=True)
-    category_id = Column(String, ForeignKey("categories.id"))
-    supplier_id = Column(String, ForeignKey("suppliers.id"))
+    category_id = Column(String, ForeignKey("categories.id"), index=True)
+    supplier_id = Column(String, ForeignKey("suppliers.id"), index=True)
     price = Column(Float)
     cost = Column(Float)
-    quantity = Column(Integer, default=0)
+    quantity = Column(Integer, default=0, index=True)
     reorder_level = Column(Integer, default=10)
     safety_stock = Column(Integer, default=5)
-    expiry_date = Column(DateTime, nullable=True)
+    expiry_date = Column(DateTime, nullable=True, index=True)
     
     category_obj = relationship("Category", back_populates="products")
     supplier_obj = relationship("Supplier", back_populates="products")
@@ -50,10 +50,10 @@ class Product(Base):
 class InventoryTransaction(Base):
     __tablename__ = "inventory_transactions"
     id = Column(String, primary_key=True, index=True)
-    product_id = Column(String, ForeignKey("products.id"))
+    product_id = Column(String, ForeignKey("products.id"), index=True)
     type = Column(String) # stock-in, stock-out, transfer, adjustment
     quantity_change = Column(Integer)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     notes = Column(String, nullable=True)
     
     product = relationship("Product", back_populates="transactions")
@@ -62,18 +62,18 @@ class Order(Base):
     __tablename__ = "orders"
     id = Column(String, primary_key=True, index=True)
     invoice = Column(String, unique=True, index=True)
-    customer = Column(String)
+    customer = Column(String, index=True)
     total = Column(Float)
-    status = Column(String) # Completed, Refunded
-    date = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, index=True) # Completed, Refunded
+    date = Column(DateTime, default=datetime.utcnow, index=True)
     
     items = relationship("OrderItem", back_populates="order")
 
 class OrderItem(Base):
     __tablename__ = "order_items"
     id = Column(String, primary_key=True, index=True)
-    order_id = Column(String, ForeignKey("orders.id"))
-    product_id = Column(String, ForeignKey("products.id"))
+    order_id = Column(String, ForeignKey("orders.id"), index=True)
+    product_id = Column(String, ForeignKey("products.id"), index=True)
     quantity = Column(Integer)
     price = Column(Float)
     
@@ -84,10 +84,10 @@ class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
     id = Column(String, primary_key=True, index=True)
     po_number = Column(String, unique=True, index=True)
-    supplier_id = Column(String, ForeignKey("suppliers.id"))
+    supplier_id = Column(String, ForeignKey("suppliers.id"), index=True)
     total = Column(Float)
-    status = Column(String) # Pending, Received, Approved
-    date = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, index=True) # Pending, Received, Approved
+    date = Column(DateTime, default=datetime.utcnow, index=True)
     
     items = relationship("PurchaseOrderItem", back_populates="purchase_order")
     supplier = relationship("Supplier")
@@ -95,8 +95,8 @@ class PurchaseOrder(Base):
 class PurchaseOrderItem(Base):
     __tablename__ = "purchase_order_items"
     id = Column(String, primary_key=True, index=True)
-    po_id = Column(String, ForeignKey("purchase_orders.id"))
-    product_id = Column(String, ForeignKey("products.id"))
+    po_id = Column(String, ForeignKey("purchase_orders.id"), index=True)
+    product_id = Column(String, ForeignKey("products.id"), index=True)
     quantity = Column(Integer)
     cost = Column(Float)
     

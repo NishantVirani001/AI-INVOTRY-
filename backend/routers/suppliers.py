@@ -16,6 +16,16 @@ def invalidate_suppliers_cache():
     global _suppliers_cache, _suppliers_cache_time
     _suppliers_cache = None
     _suppliers_cache_time = 0
+    try:
+        from backend.routers.dashboard import invalidate_dashboard_cache
+        invalidate_dashboard_cache()
+    except Exception:
+        pass
+    try:
+        from backend.routers.products import invalidate_products_cache
+        invalidate_products_cache()
+    except Exception:
+        pass
 
 class SupplierCreate(BaseModel):
     name: str
@@ -28,7 +38,7 @@ class SupplierCreate(BaseModel):
 def get_suppliers(db: Session = Depends(get_db)):
     global _suppliers_cache, _suppliers_cache_time
     now = time.time()
-    if _suppliers_cache is not None and (now - _suppliers_cache_time) < 30.0:
+    if _suppliers_cache is not None and (now - _suppliers_cache_time) < 60.0:
         return _suppliers_cache
 
     suppliers = db.query(models.Supplier).all()

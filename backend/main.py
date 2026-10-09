@@ -6,13 +6,28 @@ import backend.models.core as models
 # Import modular routers
 from backend.routers import auth, products, categories, suppliers, orders, purchases, dashboard, ai, customers, notifications, reports
 
-# Create database tables if not existing
-Base.metadata.create_all(bind=engine)
+import threading
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Non-blocking warm-up of the database connection pool
+    def _warmup():
+        try:
+            from sqlalchemy import text
+            Base.metadata.create_all(bind=engine)
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception:
+            pass
+    threading.Thread(target=_warmup, daemon=True).start()
+    yield
 
 app = FastAPI(
     title="StockPilot API",
     description="Enterprise AI-Powered Inventory & Supply Chain Management REST API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS configuration for local React Vite frontend

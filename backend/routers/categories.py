@@ -16,6 +16,16 @@ def invalidate_categories_cache():
     global _categories_cache, _categories_cache_time
     _categories_cache = None
     _categories_cache_time = 0
+    try:
+        from backend.routers.dashboard import invalidate_dashboard_cache
+        invalidate_dashboard_cache()
+    except Exception:
+        pass
+    try:
+        from backend.routers.products import invalidate_products_cache
+        invalidate_products_cache()
+    except Exception:
+        pass
 
 class CategoryCreate(BaseModel):
     name: str
@@ -25,7 +35,7 @@ class CategoryCreate(BaseModel):
 def get_categories(db: Session = Depends(get_db)):
     global _categories_cache, _categories_cache_time
     now = time.time()
-    if _categories_cache is not None and (now - _categories_cache_time) < 30.0:
+    if _categories_cache is not None and (now - _categories_cache_time) < 60.0:
         return _categories_cache
 
     categories = db.query(models.Category).all()

@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime
 from typing import Optional, List
@@ -8,6 +9,14 @@ from backend.database import get_db
 import backend.models.core as models
 
 router = APIRouter(prefix="/api/customers", tags=["Customers"])
+
+_customers_cache = {}
+_customers_cache_time = 0
+
+def invalidate_customers_cache():
+    global _customers_cache, _customers_cache_time
+    _customers_cache = {}
+    _customers_cache_time = 0
 
 class CustomerCreate(BaseModel):
     name: str
@@ -21,13 +30,19 @@ class CustomerUpdate(BaseModel):
 
 @router.get("")
 def get_customers(search: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    global _customers_cache, _customers_cache_time
+    now_ts = time.time()
+    cache_key = (search or "").strip().lower()
+    if (now_ts - _customers_cache_time) < 60.0 and cache_key in _customers_cache:
+        return _customers_cache[cache_key]
+
     query = db.query(models.Customer)
     if search:
         s = f"%{search.strip()}%"
         query = query.filter(models.Customer.name.ilike(s) | models.Customer.email.ilike(s))
     
     customers = query.order_by(models.Customer.name.asc()).all()
-    return [
+    result = [
         {
             "id": c.id,
             "name": c.name,
@@ -39,6 +54,9 @@ def get_customers(search: Optional[str] = Query(None), db: Session = Depends(get
         }
         for c in customers
     ]
+    _customers_cache[cache_key] = result
+    _customers_cache_time = now_ts
+    return result
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_customer(data: CustomerCreate, db: Session = Depends(get_db)):
@@ -59,6 +77,7 @@ def create_customer(data: CustomerCreate, db: Session = Depends(get_db)):
     db.add(new_c)
     db.commit()
     db.refresh(new_c)
+    invalidate_customers_cache()
 
     return {
         "id": new_c.id,
@@ -78,4 +97,5 @@ def delete_customer(customer_id: str, db: Session = Depends(get_db)):
 
     db.delete(c)
     db.commit()
+    invalidate_customers_cache()
     return {"status": "ok", "message": f"Customer '{customer_id}' deleted."}
