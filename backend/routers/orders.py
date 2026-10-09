@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from backend.database import get_db
 import backend.models.core as models
+from backend.routers.dashboard import invalidate_dashboard_cache
 
 router = APIRouter(prefix="/api/sales", tags=["Sales Orders"])
 
@@ -23,8 +24,11 @@ class RejectInput(BaseModel):
     reason: Optional[str] = "Rejected by supplier"
 
 @router.get("")
-def get_sales(db: Session = Depends(get_db)):
-    orders = db.query(models.Order).order_by(models.Order.date.desc()).all()
+def get_sales(customer: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(models.Order)
+    if customer:
+        query = query.filter(models.Order.customer.ilike(f"%{customer.strip()}%"))
+    orders = query.order_by(models.Order.date.desc()).all()
     result = []
     for o in orders:
         total_items = sum(item.quantity for item in o.items) if o.items else 1
@@ -112,8 +116,25 @@ def create_sale(data: OrderCreate, db: Session = Depends(get_db)):
     )
     db.add(order_item)
 
+    # Ensure customer profile entity exists in database
+    cust = db.query(models.Customer).filter(models.Customer.name.ilike(data.customer.strip())).first()
+    if not cust:
+        cust = models.Customer(
+            id=f"cu_{uuid.uuid4().hex[:8]}",
+            name=data.customer.strip(),
+            email=f"{data.customer.lower().replace(' ', '')}@client.local",
+            phone="",
+            total_orders=1,
+            total_spent=total_price,
+            last_order_date=datetime.utcnow(),
+        )
+        db.add(cust)
+    else:
+        cust.last_order_date = datetime.utcnow()
+
     db.commit()
     db.refresh(new_order)
+    invalidate_dashboard_cache()
 
     return {
         "id": new_order.id,
@@ -193,6 +214,7 @@ def accept_sale_order(order_id: str, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(order)
+    invalidate_dashboard_cache()
 
     return {
         "status": "ok",
@@ -236,6 +258,7 @@ def reject_sale_order(order_id: str, data: Optional[RejectInput] = None, db: Ses
     order.status = "Rejected"
     db.commit()
     db.refresh(order)
+    invalidate_dashboard_cache()
 
     return {
         "status": "ok",
@@ -261,6 +284,7 @@ def complete_sale_order(order_id: str, db: Session = Depends(get_db)):
     order.status = "Completed"
     db.commit()
     db.refresh(order)
+    invalidate_dashboard_cache()
 
     return {
         "status": "ok",

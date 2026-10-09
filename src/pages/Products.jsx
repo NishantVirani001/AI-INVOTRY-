@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { Plus, Pencil, Trash2, Scan, Layers, QrCode } from "lucide-react";
 import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
@@ -12,6 +12,7 @@ import { Input, Select } from "../components/common/Input";
 import { Loader, EmptyState } from "../components/common/Loader";
 import StockTape from "../components/common/StockTape";
 import { useToast } from "../components/common/Toast";
+import { useAuth } from "../context/AuthContext";
 import productService from "../services/productService";
 import categoryService from "../services/categoryService";
 import supplierService from "../services/supplierService";
@@ -33,6 +34,13 @@ const emptyForm = {
 };
 
 export default function Products() {
+  const { user } = useAuth();
+
+  // Strict role protection: Customers must never add/edit products or view internal inventory management
+  if (user?.role === "Customer") {
+    return <Navigate to="/customer/catalog" replace />;
+  }
+
   const navigate = useNavigate();
   const { toast } = useToast();
   const [products, setProducts] = useState([]);

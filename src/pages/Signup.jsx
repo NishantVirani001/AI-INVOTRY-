@@ -94,11 +94,12 @@ export default function Signup() {
 
           <div>
             <label className="manifest-label mb-1.5 block">Account Role</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { value: "Admin", label: "Admin", desc: "Full access" },
                 { value: "Manager", label: "Manager", desc: "Operations" },
-                { value: "Staff", label: "Staff", desc: "Standard" },
+                { value: "Staff", label: "Staff", desc: "Warehouse" },
+                { value: "Customer", label: "Customer", desc: "Place orders" },
               ].map((r) => (
                 <button
                   key={r.value}

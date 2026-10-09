@@ -11,6 +11,7 @@ import Customers from "./pages/Customers";
 import Notifications from "./pages/Notifications";
 import Reports from "./pages/Reports";
 import AIInsights from "./pages/AIInsights";
+import CustomerPortal from "./pages/CustomerPortal";
 import NotFound from "./pages/NotFound";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -29,7 +30,20 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
-        <Route path="/products" element={<Products />} />
+        {/* Customer Dedicated Portal Routes */}
+        <Route path="/customer/catalog" element={<CustomerPortal defaultTab="catalog" />} />
+        <Route path="/customer/orders" element={<CustomerPortal defaultTab="orders" />} />
+        <Route path="/customer/activity" element={<CustomerPortal defaultTab="activity" />} />
+
+        {/* Warehouse Operations Routes (Restricted from Customers) */}
+        <Route
+          path="/products"
+          element={
+            <ProtectedRoute roles={["Admin", "Manager", "Employee", "Staff"]}>
+              <Products />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/categories"
           element={
@@ -46,7 +60,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/sales" element={<Sales />} />
+        <Route
+          path="/sales"
+          element={
+            <ProtectedRoute roles={["Admin", "Manager", "Employee", "Staff"]}>
+              <Sales />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/purchases"
           element={
@@ -55,7 +76,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/customers" element={<Customers />} />
+        <Route
+          path="/customers"
+          element={
+            <ProtectedRoute roles={["Admin", "Manager", "Employee", "Staff"]}>
+              <Customers />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/notifications" element={<Notifications />} />
         <Route
           path="/reports"

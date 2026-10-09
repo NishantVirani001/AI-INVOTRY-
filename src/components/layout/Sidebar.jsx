@@ -11,6 +11,10 @@ import {
   BarChart3,
   Sparkles,
   Warehouse,
+  Store,
+  ShoppingBag,
+  PackageCheck,
+  Activity,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "../../context/AuthContext";
@@ -20,16 +24,23 @@ import { useState, useEffect } from "react";
 import notificationService from "../../services/notificationService";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["Admin", "Manager", "Employee"] },
-  { to: "/products", label: "Products", icon: Boxes, roles: ["Admin", "Manager", "Employee"] },
+  // Admin & Operations Staff Navigation
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["Admin", "Manager", "Employee", "Staff"] },
+  { to: "/products", label: "Products", icon: Boxes, roles: ["Admin", "Manager", "Employee", "Staff"] },
   { to: "/categories", label: "Categories", icon: Tags, roles: ["Admin", "Manager"] },
   { to: "/suppliers", label: "Suppliers", icon: Truck, roles: ["Admin", "Manager"] },
-  { to: "/sales", label: "Sales", icon: ShoppingCart, roles: ["Admin", "Manager", "Employee"] },
+  { to: "/sales", label: "Sales & Orders", icon: ShoppingCart, roles: ["Admin", "Manager", "Employee", "Staff"] },
   { to: "/purchases", label: "Purchases", icon: PackagePlus, roles: ["Admin", "Manager"] },
-  { to: "/customers", label: "Customers", icon: Users, roles: ["Admin", "Manager", "Employee"] },
-  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["Admin", "Manager", "Employee"] },
+  { to: "/customers", label: "Customers", icon: Users, roles: ["Admin", "Manager", "Employee", "Staff"] },
+  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["Admin", "Manager", "Employee", "Staff", "Customer"] },
   { to: "/reports", label: "Reports", icon: BarChart3, roles: ["Admin", "Manager"] },
   { to: "/ai-insights", label: "AI Insights", icon: Sparkles, roles: ["Admin", "Manager"] },
+
+  // Customer Dedicated Portal Navigation
+  { to: "/", label: "Store Portal", icon: Store, roles: ["Customer"] },
+  { to: "/customer/catalog", label: "Browse Catalog", icon: ShoppingBag, roles: ["Customer"] },
+  { to: "/customer/orders", label: "My Orders", icon: PackageCheck, roles: ["Customer"] },
+  { to: "/customer/activity", label: "My Activity", icon: Activity, roles: ["Customer"] },
 ];
 
 export default function Sidebar({ mobileOpen, onCloseMobile }) {

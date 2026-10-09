@@ -81,8 +81,8 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     
     # Standardize role name
     role_formatted = req.role.capitalize() if req.role else "Staff"
-    if role_formatted not in ["Admin", "Manager", "Employee", "Staff"]:
-        role_formatted = "Staff"
+    if role_formatted not in ["Admin", "Manager", "Employee", "Staff", "Customer"]:
+        role_formatted = "Customer" if "cust" in req.role.lower() else "Staff"
 
     new_user = models.User(
         id=user_id,
@@ -93,6 +93,21 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
         avatar_color=avatar_color,
     )
     db.add(new_user)
+
+    # If registering as a Customer, ensure customer profile entity exists
+    if role_formatted == "Customer":
+        cust = db.query(models.Customer).filter(models.Customer.email == clean_email).first()
+        if not cust:
+            new_cust = models.Customer(
+                id=f"cu_{uuid.uuid4().hex[:8]}",
+                name=req.name.strip(),
+                email=clean_email,
+                phone="",
+                total_orders=0,
+                total_spent=0.0,
+            )
+            db.add(new_cust)
+
     db.commit()
     db.refresh(new_user)
 

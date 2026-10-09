@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Navigate } from "react-router-dom";
 import {
   Plus,
   CheckCircle2,
@@ -23,6 +23,7 @@ import Modal from "../components/common/Modal";
 import { Input, Select } from "../components/common/Input";
 import { Loader, EmptyState } from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
+import { useAuth } from "../context/AuthContext";
 import orderService from "../services/orderService";
 import productService from "../services/productService";
 import customerService from "../services/customerService";
@@ -45,6 +46,13 @@ const TABS = [
 ];
 
 export default function Sales() {
+  const { user } = useAuth();
+
+  // Strict role protection: Customers view their orders in CustomerPortal
+  if (user?.role === "Customer") {
+    return <Navigate to="/customer/orders" replace />;
+  }
+
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get("tab") === "pending" ? "Pending" : "all";

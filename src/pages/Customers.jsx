@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { Navigate } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
@@ -9,6 +10,7 @@ import Modal from "../components/common/Modal";
 import { Input } from "../components/common/Input";
 import { Loader, EmptyState } from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
+import { useAuth } from "../context/AuthContext";
 import customerService from "../services/customerService";
 import { mockCustomers } from "../data/mockData";
 import { formatCurrency, formatDate } from "../utils/formatters";
@@ -16,6 +18,13 @@ import { formatCurrency, formatDate } from "../utils/formatters";
 const emptyForm = { name: "", email: "", phone: "" };
 
 export default function Customers() {
+  const { user } = useAuth();
+
+  // Strict role protection: Customers must never access customer management or add customers
+  if (user?.role === "Customer") {
+    return <Navigate to="/" replace />;
+  }
+
   const { toast } = useToast();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);

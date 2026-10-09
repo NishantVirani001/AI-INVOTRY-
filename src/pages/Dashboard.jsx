@@ -16,9 +16,14 @@ import orderService from "../services/orderService";
 import { dashboardStats } from "../data/mockData";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { useAuth } from "../context/AuthContext";
+import CustomerPortal from "./CustomerPortal";
 
 export default function Dashboard() {
   const { user } = useAuth();
+
+  if (user?.role === "Customer") {
+    return <CustomerPortal />;
+  }
   const [liveStats, setLiveStats] = useState(null);
   const [counts, setCounts] = useState({
     products: 12,
