@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Warehouse } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Input } from "../components/common/Input";
@@ -89,6 +89,16 @@ export default function Login() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="mt-5 text-center text-sm text-graphite-500 dark:text-paper-300/60">
+          Don't have an account?{" "}
+          <Link
+            to="/signup"
+            className="font-medium text-signal hover:underline dark:text-signal"
+          >
+            Sign up
+          </Link>
         </div>
       </div>
     </div>

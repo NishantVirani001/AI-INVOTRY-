@@ -54,6 +54,28 @@ export function AuthProvider({ children }) {
     return { success: false };
   };
 
+  const signup = async (userData) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await authService.signup(userData);
+      if (res && res.access_token) {
+        localStorage.setItem("stockpilot-token", res.access_token);
+        localStorage.setItem("stockpilot-user", JSON.stringify(res.user));
+        setUser(res.user);
+        setLoading(false);
+        return { success: true, user: res.user };
+      }
+    } catch (err) {
+      setLoading(false);
+      const msg = err.message || "Failed to create account.";
+      setError(msg);
+      return { success: false, error: msg };
+    }
+    setLoading(false);
+    return { success: false, error: "Signup failed." };
+  };
+
   const logout = () => {
     setUser(null);
     localStorage.removeItem("stockpilot-user");
@@ -64,7 +86,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, login, logout, loading, error, hasRole }}
+      value={{ user, login, signup, logout, loading, error, hasRole }}
     >
       {children}
     </AuthContext.Provider>
