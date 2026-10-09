@@ -51,6 +51,8 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         role=user.role,
         avatarColor=user.avatar_color,
     )
+    return LoginResponse(access_token=token, user=user_data)
+
 @router.post("/signup", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
 def signup(req: SignupRequest, db: Session = Depends(get_db)):
     clean_email = req.email.strip().lower()
