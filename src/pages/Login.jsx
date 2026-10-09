@@ -5,7 +5,6 @@ import { useAuth } from "../context/AuthContext";
 import { Input } from "../components/common/Input";
 import Button from "../components/common/Button";
 import { useToast } from "../components/common/Toast";
-import { mockUsers } from "../data/mockData";
 
 export default function Login() {
   const { user, login, loading, error } = useAuth();
@@ -26,11 +25,6 @@ export default function Login() {
       toast({ type: "success", message: `Welcome back, ${res.user.name.split(" ")[0]}.` });
       navigate(location.state?.from || "/", { replace: true });
     }
-  };
-
-  const fillDemo = (u) => {
-    setEmail(u.email);
-    setPassword("password123");
   };
 
   return (
@@ -74,22 +68,6 @@ export default function Login() {
             {loading ? "Signing in" : "Sign in"}
           </Button>
         </form>
-
-        <div className="mt-5">
-          <p className="manifest-label mb-2 text-center">Demo accounts (password: password123)</p>
-          <div className="grid grid-cols-3 gap-2">
-            {mockUsers.map((u) => (
-              <button
-                key={u.id}
-                onClick={() => fillDemo(u)}
-                type="button"
-                className="rounded-tag border border-graphite-800/15 px-2 py-2 text-xs font-medium text-graphite-600 hover:border-signal hover:text-signal-dim dark:border-paper-100/15 dark:text-paper-300 dark:hover:text-signal"
-              >
-                {u.role}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <div className="mt-5 text-center text-sm text-graphite-500 dark:text-paper-300/60">
           Don't have an account?{" "}
