@@ -112,8 +112,8 @@ export default function Products() {
     setEditingId(null);
     setForm({
       ...emptyForm,
-      category: categories[0]?.name || "Power Tools",
-      supplier: suppliers[0]?.name || "Northgate Distribution",
+      category: categories[0]?.name || "",
+      supplier: suppliers[0]?.name || "",
     });
     setErrors({});
     setModalOpen(true);
@@ -139,6 +139,8 @@ export default function Products() {
     const e = {};
     if (!form.name.trim()) e.name = "Product name is required.";
     if (!form.sku.trim()) e.sku = "SKU is required.";
+    if (!form.category) e.category = "Please select a category.";
+    if (!form.supplier) e.supplier = "Please select a supplier.";
     if (!form.price || Number(form.price) <= 0) e.price = "Enter a valid price.";
     if (form.quantity === "" || Number(form.quantity) < 0) e.quantity = "Enter a valid quantity.";
     if (!form.reorderLevel || Number(form.reorderLevel) < 0) e.reorderLevel = "Enter a reorder level.";
@@ -385,17 +387,27 @@ export default function Products() {
             />
             <Select
               label="Category"
+              required
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
-              options={categories.map((c) => ({ value: c.name, label: c.name }))}
+              error={errors.category}
+              options={[
+                { value: "", label: "-- Select a Category --" },
+                ...categories.map((c) => ({ value: c.name, label: c.name })),
+              ]}
             />
           </div>
 
           <Select
             label="Supplier"
+            required
             value={form.supplier}
             onChange={(e) => setForm({ ...form, supplier: e.target.value })}
-            options={suppliers.map((s) => ({ value: s.name, label: s.name }))}
+            error={errors.supplier}
+            options={[
+              { value: "", label: "-- Select a Supplier --" },
+              ...suppliers.map((s) => ({ value: s.name, label: s.name })),
+            ]}
           />
 
           <div className="grid grid-cols-2 gap-3">
