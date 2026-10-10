@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+// StockPilot High-Reliability Enterprise API Client
+// Handles: Dynamic Backend URL routing (Vercel <-> Render), Cold-Start Auto-Retry, CORS Headers, and Resilient Storage Fallback
 
 class ApiError extends Error {
   constructor(message, status, data) {
@@ -8,18 +9,78 @@ class ApiError extends Error {
   }
 }
 
-// High-throughput in-memory cache with ultra-fast freshness (1.5s fresh TTL for in-page deduplication)
+// In-memory cache for fast UI updates & deduplication
 const requestCache = new Map();
 const inFlightRequests = new Map();
 
-const FRESH_TTL_MS = 1500; // 1.5s fresh TTL (prevents duplicate requests on component mount)
-const STALE_TTL_MS = 4000; // 4s stale-while-revalidate
+const FRESH_TTL_MS = 1500;
+const STALE_TTL_MS = 4000;
 
 export function clearApiCache() {
   requestCache.clear();
 }
 
-// Global broadcast function for immediate real-time sync
+/**
+ * Dynamically resolves the active Backend URL.
+ * Priority:
+ * 1. User runtime setting in localStorage (allows instant linking to Render from UI)
+ * 2. Build-time environment variable VITE_API_BASE
+ * 3. Empty string "" (Vite dev server proxies /api to port 5000)
+ */
+export function getBackendUrl() {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("stockpilot_backend_url");
+    if (saved && saved.trim()) {
+      return saved.trim().replace(/\/+$/, "");
+    }
+  }
+  const envUrl = import.meta.env.VITE_API_BASE;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+  return "";
+}
+
+export function setBackendUrl(url) {
+  if (typeof window === "undefined") return;
+  const cleaned = (url || "").trim().replace(/\/+$/, "");
+  if (cleaned) {
+    localStorage.setItem("stockpilot_backend_url", cleaned);
+  } else {
+    localStorage.removeItem("stockpilot_backend_url");
+  }
+  clearApiCache();
+  notifyDataChanged("backend-config");
+}
+
+/**
+ * Tests connection to a given backend URL (used by UI Cloud Sync modal)
+ */
+export async function testBackendConnection(targetUrl) {
+  const url = (targetUrl || getBackendUrl()).trim().replace(/\/+$/, "");
+  const pingUrl = url ? `${url}/api/health` : "/api/health";
+  const startTime = Date.now();
+  try {
+    const res = await fetch(pingUrl, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      mode: "cors",
+    });
+    const latency = Date.now() - startTime;
+    if (res.ok) {
+      const isJson = res.headers.get("content-type")?.includes("application/json");
+      if (isJson) {
+        return { ok: true, latency, status: res.status, message: `Connected to API in ${latency}ms` };
+      }
+      return { ok: false, latency, status: res.status, message: "Server returned HTML instead of API JSON (verify URL)" };
+    }
+    return { ok: false, latency, status: res.status, message: `Server responded with HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, latency: Date.now() - startTime, error: err.message, message: "Cannot reach backend. Render instance may be booting or offline." };
+  }
+}
+
+// Global broadcast function for continuous data sync
 export function notifyDataChanged(endpoint = "") {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("stockpilot-data-updated", { detail: { endpoint } }));
@@ -30,12 +91,26 @@ export function notifyDataChanged(endpoint = "") {
       bc.close();
     }
     localStorage.setItem("stockpilot-sync-ts", Date.now().toString());
-  } catch {
-    // Ignore cross-origin / private mode limitations
-  }
+  } catch {}
 }
 
-// Client-side fallback handler for static hosting environments (Vercel without backend proxy)
+// Pre-warm backend silently on load
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    const base = getBackendUrl();
+    if (base) {
+      testBackendConnection(base).then((res) => {
+        window.dispatchEvent(
+          new CustomEvent("stockpilot-backend-status", {
+            detail: { status: res.ok ? "online" : "offline", message: res.message, url: base },
+          })
+        );
+      });
+    }
+  }, 800);
+}
+
+// Client-side fallback handler for static hosting / cold starts / offline
 function handleClientFallback(endpoint, options = {}) {
   try {
     const method = (options.method || "GET").toUpperCase();
@@ -55,15 +130,12 @@ function handleClientFallback(endpoint, options = {}) {
             email: "param@parameport.com",
             phone: "+91 98765 43210",
             rating: 4.8,
-            productsSupplied: 2,
+            productsSupplied: 3,
           },
         ];
         localStorage.setItem("stockpilot_suppliers", JSON.stringify(stored));
       }
-
-      if (method === "GET") {
-        return stored;
-      }
+      if (method === "GET") return stored;
       if (method === "POST") {
         const newSup = {
           id: `s_${Date.now().toString(36)}`,
@@ -137,9 +209,7 @@ function handleClientFallback(endpoint, options = {}) {
         localStorage.setItem("stockpilot_products", JSON.stringify(stored));
       }
 
-      if (method === "GET") {
-        return stored;
-      }
+      if (method === "GET") return stored;
       if (method === "POST") {
         if (parts[2] === "adjust") {
           const prodId = parts[1];
@@ -223,13 +293,146 @@ function handleClientFallback(endpoint, options = {}) {
       }
     }
 
-    // 4. DASHBOARD STATS
+    // 4. CUSTOMERS
+    if (path.startsWith("customers")) {
+      const parts = path.split("/");
+      let stored = JSON.parse(localStorage.getItem("stockpilot_customers") || "[]");
+      if (stored.length === 0) {
+        stored = [
+          { id: "cust_1", name: "Denver Build Co.", email: "denver@buildco.com", phone: "+1 303-555-0199", ordersCount: 2, totalSpent: 2668, createdAt: "2026-03-01" },
+          { id: "cust_2", name: "Apex Industrial Supplies", email: "procurement@apexind.com", phone: "+1 415-555-0142", ordersCount: 1, totalSpent: 460, createdAt: "2026-03-05" },
+          { id: "cust_3", name: "Metro Hardware Hub", email: "orders@metrohardware.com", phone: "+1 212-555-0188", ordersCount: 1, totalSpent: 230, createdAt: "2026-03-08" },
+        ];
+        localStorage.setItem("stockpilot_customers", JSON.stringify(stored));
+      }
+      if (method === "GET") return stored;
+      if (method === "POST") {
+        const newCust = {
+          id: `cust_${Date.now().toString(36)}`,
+          name: body.name?.trim() || "Customer",
+          email: body.email?.trim() || "",
+          phone: body.phone?.trim() || "",
+          ordersCount: 0,
+          totalSpent: 0,
+          createdAt: new Date().toISOString().slice(0, 10),
+        };
+        stored.push(newCust);
+        localStorage.setItem("stockpilot_customers", JSON.stringify(stored));
+        return newCust;
+      }
+      if (method === "DELETE" && parts[1]) {
+        stored = stored.filter((c) => c.id !== parts[1]);
+        localStorage.setItem("stockpilot_customers", JSON.stringify(stored));
+        return { status: "ok" };
+      }
+    }
+
+    // 5. SALES & ORDERS
+    if (path.startsWith("sales") || path.startsWith("orders")) {
+      const parts = path.split("/");
+      let stored = JSON.parse(localStorage.getItem("stockpilot_sales") || "[]");
+      if (stored.length === 0) {
+        stored = [
+          { id: "ord_101", customer: "Denver Build Co.", customerEmail: "denver@buildco.com", product: "Power Drill X", sku: "PWR-1", quantity: 5, unitPrice: 230, total: 1150, status: "Completed", orderType: "Completed", date: "2026-03-10", notes: "In-store POS sale" },
+          { id: "ord_102", customer: "Apex Industrial Supplies", customerEmail: "procurement@apexind.com", product: "Steel Hex Bolts", sku: "FST-2", quantity: 20, unitPrice: 23, total: 460, status: "Accepted", orderType: "Pending", date: "2026-03-11", notes: "Awaiting dispatch" },
+          { id: "ord_103", customer: "Denver Build Co.", customerEmail: "denver@buildco.com", product: "Copper Piping 2m", sku: "RAW-3", quantity: 2, unitPrice: 759, total: 1518, status: "Pending", orderType: "Pending", date: "2026-03-12", notes: "Awaiting approval" },
+        ];
+        localStorage.setItem("stockpilot_sales", JSON.stringify(stored));
+      }
+      if (method === "GET") return stored;
+      if (method === "POST") {
+        const prods = JSON.parse(localStorage.getItem("stockpilot_products") || "[]");
+        const foundProd = prods.find((p) => p.sku === body.product || p.name === body.product);
+        const unitPrice = foundProd ? Number(foundProd.price) : 100;
+        const qty = Number(body.quantity) || 1;
+        const newSale = {
+          id: `ord_${Date.now().toString(36)}`,
+          customer: body.customer || "General Client",
+          customerEmail: body.customerEmail || "",
+          product: foundProd ? foundProd.name : body.product || "Product",
+          sku: foundProd ? foundProd.sku : "SKU-GEN",
+          quantity: qty,
+          unitPrice,
+          total: qty * unitPrice,
+          status: body.orderType === "Completed" ? "Completed" : "Pending",
+          orderType: body.orderType || "Pending",
+          date: new Date().toISOString().slice(0, 10),
+          notes: body.notes || "",
+        };
+        stored.unshift(newSale);
+        localStorage.setItem("stockpilot_sales", JSON.stringify(stored));
+        return newSale;
+      }
+      if (method === "PUT" && parts[1]) {
+        const orderId = parts[1];
+        const action = parts[2];
+        const idx = stored.findIndex((o) => o.id === orderId);
+        if (idx !== -1) {
+          if (action === "accept") stored[idx].status = "Accepted";
+          else if (action === "reject") stored[idx].status = "Rejected";
+          else if (action === "complete") stored[idx].status = "Completed";
+          localStorage.setItem("stockpilot_sales", JSON.stringify(stored));
+          return stored[idx];
+        }
+      }
+    }
+
+    // 6. PURCHASES
+    if (path.startsWith("purchases")) {
+      let stored = JSON.parse(localStorage.getItem("stockpilot_purchases") || "[]");
+      if (stored.length === 0) {
+        stored = [
+          { id: "po_101", supplier: "Parameport Global", product: "Power Drill X", sku: "PWR-1", quantity: 50, unitCost: 180, totalCost: 9000, status: "Received", date: "2026-03-01" },
+          { id: "po_102", supplier: "Parameport Global", product: "Steel Hex Bolts", sku: "FST-2", quantity: 500, unitCost: 15, totalCost: 7500, status: "Pending", date: "2026-03-08" },
+        ];
+        localStorage.setItem("stockpilot_purchases", JSON.stringify(stored));
+      }
+      if (method === "GET") return stored;
+      if (method === "POST") {
+        const newPO = {
+          id: `po_${Date.now().toString(36)}`,
+          supplier: body.supplier || "Parameport Global",
+          product: body.product || "Product",
+          sku: body.sku || "SKU-PO",
+          quantity: Number(body.quantity) || 1,
+          unitCost: Number(body.unitCost) || 100,
+          totalCost: (Number(body.quantity) || 1) * (Number(body.unitCost) || 100),
+          status: "Pending",
+          date: new Date().toISOString().slice(0, 10),
+        };
+        stored.unshift(newPO);
+        localStorage.setItem("stockpilot_purchases", JSON.stringify(stored));
+        return newPO;
+      }
+    }
+
+    // 7. NOTIFICATIONS
+    if (path.startsWith("notifications")) {
+      let stored = JSON.parse(localStorage.getItem("stockpilot_notifications") || "[]");
+      if (stored.length === 0) {
+        stored = [
+          { id: "n_1", title: "Low Stock Alert", message: "Copper Piping 2m is below reorder threshold (10 units remaining).", type: "warning", read: false, createdAt: new Date().toISOString() },
+          { id: "n_2", title: "New Order Received", message: "Denver Build Co. submitted order for 2 units.", type: "info", read: false, createdAt: new Date().toISOString() },
+        ];
+        localStorage.setItem("stockpilot_notifications", JSON.stringify(stored));
+      }
+      if (method === "GET") return stored;
+      if (method === "PUT") {
+        stored = stored.map((n) => ({ ...n, read: true }));
+        localStorage.setItem("stockpilot_notifications", JSON.stringify(stored));
+        return { status: "ok" };
+      }
+    }
+
+    // 8. DASHBOARD STATS
     if (path.startsWith("dashboard")) {
       const prods = JSON.parse(localStorage.getItem("stockpilot_products") || "[]");
       const sups = JSON.parse(localStorage.getItem("stockpilot_suppliers") || "[]");
       const cats = JSON.parse(localStorage.getItem("stockpilot_categories") || "[]");
+      const sales = JSON.parse(localStorage.getItem("stockpilot_sales") || "[]");
       const totalUnits = prods.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
       const totalVal = prods.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.price) || 0)), 0);
+      const totalRev = sales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
       const lowCount = prods.filter((p) => (Number(p.quantity) || 0) > 0 && (Number(p.quantity) || 0) <= (Number(p.reorderLevel) || 10)).length;
       const outCount = prods.filter((p) => (Number(p.quantity) || 0) <= 0).length;
 
@@ -259,15 +462,15 @@ function handleClientFallback(endpoint, options = {}) {
         totalProducts: prods.length,
         totalCategories: cats.length,
         totalSuppliers: sups.length,
-        totalSalesCount: 4,
+        totalSalesCount: sales.length,
         totalInventoryValue: Math.round(totalVal),
-        totalRevenue: 2596.0,
+        totalRevenue: Math.round(totalRev),
         lowStockCount: lowCount,
         outOfStockCount: outCount,
         inStockCount: Math.max(0, prods.length - lowCount - outCount),
         reorderAlerts: lowCount + outCount,
         pendingPOs: 0,
-        pendingOrders: 0,
+        pendingOrders: sales.filter((s) => s.status === "Pending").length,
         categoryDistribution: catDist,
         recentActivities: [],
         salesTrend: [],
@@ -275,25 +478,73 @@ function handleClientFallback(endpoint, options = {}) {
         productStock,
       };
     }
+
+    // 9. HEALTH
+    if (path.startsWith("health")) {
+      return { status: "ok", service: "StockPilot Fallback Local Engine" };
+    }
   } catch (err) {
     console.error("Fallback handler error:", err);
   }
   return undefined;
 }
 
+/**
+ * Robust fetch with Render Cold-Start retry & detection
+ */
+async function fetchWithRetry(url, options, maxRetries = 2) {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      const res = await fetch(url, options);
+
+      // Render cold-start status codes: 502 Bad Gateway / 503 Unavailable / 504 Gateway Timeout
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < maxRetries) {
+        attempt++;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("stockpilot-backend-status", {
+              detail: { status: "waking", attempt, maxRetries, message: `Cloud backend waking up (attempt ${attempt}/${maxRetries})...` },
+            })
+          );
+        }
+        await new Promise((r) => setTimeout(r, 2200 * attempt));
+        continue;
+      }
+
+      return res;
+    } catch (networkErr) {
+      if (attempt < maxRetries) {
+        attempt++;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("stockpilot-backend-status", {
+              detail: { status: "waking", attempt, maxRetries, message: `Reconnecting to cloud backend (attempt ${attempt}/${maxRetries})...` },
+            })
+          );
+        }
+        await new Promise((r) => setTimeout(r, 2200 * attempt));
+        continue;
+      }
+      throw networkErr;
+    }
+  }
+}
+
 async function request(endpoint, options = {}) {
-  const token = localStorage.getItem("stockpilot-token");
+  const token = typeof window !== "undefined" ? localStorage.getItem("stockpilot-token") : null;
   const headers = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
-  const url = `${API_BASE}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  const base = getBackendUrl();
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const url = `${base}${cleanEndpoint}`;
   const isGet = !options.method || options.method === "GET";
   const bypassCache = Boolean(options.bypassCache);
 
-  // Mutations invalidate cached GET data immediately across the entire app
   if (!isGet) {
     clearApiCache();
   }
@@ -304,19 +555,18 @@ async function request(endpoint, options = {}) {
     const cached = requestCache.get(cacheKey);
     const now = Date.now();
 
-    // 1. Fresh cache hit: Instant return!
     if (cached && now - cached.timestamp < FRESH_TTL_MS) {
       return cached.data;
     }
 
-    // 2. Stale cache hit: Return immediately, revalidate silently in background!
     if (cached && now - cached.timestamp < STALE_TTL_MS) {
       if (!inFlightRequests.has(cacheKey)) {
-        // Trigger background fetch
-        const bgPromise = fetch(url, { ...options, headers })
-          .then((res) => (res.headers.get("content-type")?.includes("application/json") ? res.json() : res.text()))
+        const bgPromise = fetchWithRetry(url, { ...options, headers }, 1)
+          .then((res) => (res.headers.get("content-type")?.includes("application/json") ? res.json() : null))
           .then((freshData) => {
-            requestCache.set(cacheKey, { timestamp: Date.now(), data: freshData });
+            if (freshData !== null) {
+              requestCache.set(cacheKey, { timestamp: Date.now(), data: freshData });
+            }
           })
           .catch(() => {})
           .finally(() => inFlightRequests.delete(cacheKey));
@@ -325,7 +575,6 @@ async function request(endpoint, options = {}) {
       return cached.data;
     }
 
-    // 3. In-flight request deduplication: reuse active network promise
     if (inFlightRequests.has(cacheKey)) {
       return inFlightRequests.get(cacheKey);
     }
@@ -335,23 +584,41 @@ async function request(endpoint, options = {}) {
     try {
       let res;
       try {
-        res = await fetch(url, { ...options, headers });
+        res = await fetchWithRetry(url, { ...options, headers }, 2);
       } catch (networkErr) {
-        // If relative URL failed (Vite proxy issue or IPv6 resolution), retry direct connection to 127.0.0.1:5000
-        if (!API_BASE && url.startsWith("/api")) {
+        // If relative URL failed on localhost, fallback to direct port 5000
+        if (!base && url.startsWith("/api") && typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
           const directUrl = `http://127.0.0.1:5000${url}`;
-          res = await fetch(directUrl, { ...options, headers });
+          res = await fetchWithRetry(directUrl, { ...options, headers }, 1);
         } else {
           throw networkErr;
         }
       }
 
-      const isJson = res.headers.get("content-type")?.includes("application/json");
+      const contentType = res.headers.get("content-type") || "";
+      const isJson = contentType.includes("application/json");
+
+      // CRITICAL VERCEL PROTECTION:
+      // If Vercel rewrote /api/* to /index.html, it returns text/html with status 200.
+      // This is NOT a real API response.
+      if (contentType.includes("text/html")) {
+        const fallback = handleClientFallback(endpoint, options);
+        if (fallback !== undefined) {
+          if (isGet) {
+            requestCache.set(cacheKey, { timestamp: Date.now(), data: fallback });
+          } else {
+            clearApiCache();
+            notifyDataChanged(endpoint);
+          }
+          return fallback;
+        }
+        throw new ApiError("Cloud backend not linked. Please configure Render backend URL in the header.", 503, null);
+      }
+
       const data = isJson ? await res.json() : await res.text();
 
       if (!res.ok) {
-        // Intercept 405 (Method Not Allowed from static hosts like Vercel) or 404 on API endpoints
-        if (res.status === 405 || res.status === 404) {
+        if (res.status === 405 || res.status === 404 || res.status === 502 || res.status === 503) {
           const fallback = handleClientFallback(endpoint, options);
           if (fallback !== undefined) {
             if (isGet) {
@@ -368,10 +635,14 @@ async function request(endpoint, options = {}) {
         throw new ApiError(errorMsg, res.status, data);
       }
 
+      // Successful live response from real backend! Broadcast online status
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("stockpilot-backend-status", { detail: { status: "online", url: base } }));
+      }
+
       if (isGet) {
         requestCache.set(cacheKey, { timestamp: Date.now(), data });
       } else {
-        // Mutation succeeded! Immediately trigger continuous live updates
         clearApiCache();
         notifyDataChanged(endpoint);
       }
@@ -380,7 +651,7 @@ async function request(endpoint, options = {}) {
     } catch (err) {
       if (err instanceof ApiError) throw err;
 
-      // Handle offline or static fallback
+      // Handle offline or static fallback seamlessly
       const fallback = handleClientFallback(endpoint, options);
       if (fallback !== undefined) {
         if (isGet) {
@@ -392,9 +663,10 @@ async function request(endpoint, options = {}) {
         return fallback;
       }
 
-      const friendlyMsg = (err.name === "TypeError" && err.message?.toLowerCase().includes("fetch"))
-        ? "Cannot connect to backend server. Please verify that the API server is running on port 5000."
-        : err.message || "Network connection error";
+      const friendlyMsg =
+        err.name === "TypeError" && err.message?.toLowerCase().includes("fetch")
+          ? "Cannot connect to backend server. Verify your Render backend URL or local port 5000."
+          : err.message || "Network connection error";
       throw new ApiError(friendlyMsg, 0, null);
     } finally {
       if (isGet) {
@@ -443,6 +715,9 @@ export const apiClient = {
     }),
   clearCache: clearApiCache,
   notify: notifyDataChanged,
+  getUrl: getBackendUrl,
+  setUrl: setBackendUrl,
+  testConnection: testBackendConnection,
 };
 
 export default apiClient;

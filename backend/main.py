@@ -30,13 +30,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration for local React Vite frontend
+# Universal CORS configuration for React Vite frontend (Vercel, Localhost, Render, etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include API Routers
@@ -54,6 +55,8 @@ app.include_router(reports.router)
 
 
 @app.get("/")
+@app.get("/health")
+@app.get("/api/health")
 def read_root():
     return {
         "status": "ok",
@@ -61,3 +64,4 @@ def read_root():
         "version": "1.0.0",
         "docs": "/docs",
     }
+
