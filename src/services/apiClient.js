@@ -588,23 +588,29 @@ function handleClientFallback(endpoint, options = {}) {
       }
 
       if (path.includes("insights") || path.includes("anomalies")) {
+        const targetLow = lowProds.length > 0 ? lowProds : prods.slice(0, 2);
         return {
-          predictedLowStock: lowProds.map((p) => ({
+          predictedLowStock: targetLow.map((p) => ({
             sku: p.sku,
+            product: p.name,
             name: p.name,
             currentStock: p.quantity,
-            daysUntilStockout: Math.max(1, Math.round((p.quantity / 5) * 7)),
-            confidence: "94%",
+            dailyVelocity: 1.2,
+            daysUntilStockout: Math.max(1, Math.round(((Number(p.quantity) || 10) / Math.max(1, Number(p.reorderLevel) || 10)) * 5)),
+            confidence: 0.94,
           })),
-          reorderRecommendations: lowProds.map((p) => ({
+          reorderRecommendations: targetLow.map((p) => ({
             sku: p.sku,
             product: p.name,
             supplier: p.supplier || "Parameport Global",
-            recommendedQty: Math.max(20, (p.reorderLevel || 10) * 3),
-            estimatedCost: ((p.cost || 100) * 20),
+            suggestedQty: Math.max(20, (Number(p.reorderLevel) || 10) * 3),
+            urgency: (Number(p.quantity) || 0) <= 0 ? "Critical" : "Moderate",
+            leadTimeDays: 4,
+            reason: `Current stock (${p.quantity}) is near minimum buffer. Estimated replenishment cycle: 4 days.`,
           })),
-          fastMoving: prods.slice(0, 2).map((p) => ({ sku: p.sku, name: p.name, velocity: "Fast" })),
-          slowMoving: prods.slice(2, 4).map((p) => ({ sku: p.sku, name: p.name, velocity: "Slow" })),
+          fastMoving: prods.slice(0, 2).map((p) => p.name || p.sku),
+          slowMoving: prods.slice(2, 4).map((p) => p.name || p.sku),
+          anomalies: [],
         };
       }
     }
