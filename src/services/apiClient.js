@@ -333,12 +333,24 @@ function handleClientFallback(endpoint, options = {}) {
       let stored = JSON.parse(localStorage.getItem("stockpilot_sales") || "[]");
       if (stored.length === 0) {
         stored = [
-          { id: "ord_101", customer: "Denver Build Co.", customerEmail: "denver@buildco.com", product: "Power Drill X", sku: "PWR-1", quantity: 5, unitPrice: 230, total: 1150, status: "Completed", orderType: "Completed", date: "2026-03-10", notes: "In-store POS sale" },
-          { id: "ord_102", customer: "Apex Industrial Supplies", customerEmail: "procurement@apexind.com", product: "Steel Hex Bolts", sku: "FST-2", quantity: 20, unitPrice: 23, total: 460, status: "Accepted", orderType: "Pending", date: "2026-03-11", notes: "Awaiting dispatch" },
-          { id: "ord_103", customer: "Denver Build Co.", customerEmail: "denver@buildco.com", product: "Copper Piping 2m", sku: "RAW-3", quantity: 2, unitPrice: 759, total: 1518, status: "Pending", orderType: "Pending", date: "2026-03-12", notes: "Awaiting approval" },
+          { id: "ord_101", invoice: "INV-101", customer: "Denver Build Co.", customerEmail: "denver@buildco.com", product: "Power Drill X", sku: "PWR-1", quantity: 5, items: 5, unitPrice: 230, total: 1150, status: "Completed", orderType: "Completed", date: "2026-03-10", notes: "In-store POS sale" },
+          { id: "ord_102", invoice: "INV-102", customer: "Apex Industrial Supplies", customerEmail: "procurement@apexind.com", product: "Steel Hex Bolts", sku: "FST-2", quantity: 20, items: 20, unitPrice: 23, total: 460, status: "Accepted", orderType: "Pending", date: "2026-03-11", notes: "Awaiting dispatch" },
+          { id: "ord_103", invoice: "INV-103", customer: "Denver Build Co.", customerEmail: "denver@buildco.com", product: "Copper Piping 2m", sku: "RAW-3", quantity: 2, items: 2, unitPrice: 759, total: 1518, status: "Pending", orderType: "Pending", date: "2026-03-12", notes: "Awaiting approval" },
         ];
         localStorage.setItem("stockpilot_sales", JSON.stringify(stored));
       }
+      // Ensure all items conform to sales schema
+      stored = stored.map((s, idx) => ({
+        ...s,
+        id: s.id || `ord_${idx + 1}`,
+        invoice: s.invoice || s.id || `INV-${1000 + idx + 1}`,
+        customer: s.customer || "General Client",
+        items: s.items ?? s.quantity ?? 1,
+        total: s.total ?? 0,
+        status: s.status || "Completed",
+        date: s.date || new Date().toISOString().slice(0, 10),
+      }));
+
       if (method === "GET") return stored;
       if (method === "POST") {
         const prods = JSON.parse(localStorage.getItem("stockpilot_products") || "[]");
@@ -347,11 +359,13 @@ function handleClientFallback(endpoint, options = {}) {
         const qty = Number(body.quantity) || 1;
         const newSale = {
           id: `ord_${Date.now().toString(36)}`,
+          invoice: `INV-${Date.now().toString(36).slice(-4).toUpperCase()}`,
           customer: body.customer || "General Client",
           customerEmail: body.customerEmail || "",
           product: foundProd ? foundProd.name : body.product || "Product",
           sku: foundProd ? foundProd.sku : "SKU-GEN",
           quantity: qty,
+          items: qty,
           unitPrice,
           total: qty * unitPrice,
           status: body.orderType === "Completed" ? "Completed" : "Pending",
@@ -366,7 +380,7 @@ function handleClientFallback(endpoint, options = {}) {
       if (method === "PUT" && parts[1]) {
         const orderId = parts[1];
         const action = parts[2];
-        const idx = stored.findIndex((o) => o.id === orderId);
+        const idx = stored.findIndex((o) => o.id === orderId || o.invoice === orderId);
         if (idx !== -1) {
           if (action === "accept") stored[idx].status = "Accepted";
           else if (action === "reject") stored[idx].status = "Rejected";
@@ -379,30 +393,56 @@ function handleClientFallback(endpoint, options = {}) {
 
     // 6. PURCHASES
     if (path.startsWith("purchases")) {
+      const parts = path.split("/");
       let stored = JSON.parse(localStorage.getItem("stockpilot_purchases") || "[]");
       if (stored.length === 0) {
         stored = [
-          { id: "po_101", supplier: "Parameport Global", product: "Power Drill X", sku: "PWR-1", quantity: 50, unitCost: 180, totalCost: 9000, status: "Received", date: "2026-03-01" },
-          { id: "po_102", supplier: "Parameport Global", product: "Steel Hex Bolts", sku: "FST-2", quantity: 500, unitCost: 15, totalCost: 7500, status: "Pending", date: "2026-03-08" },
+          { id: "po_101", po: "PO-101", supplier: "Parameport Global", product: "Power Drill X", sku: "PWR-1", quantity: 50, items: 50, unitCost: 180, totalCost: 9000, total: 9000, status: "Received", date: "2026-03-01" },
+          { id: "po_102", po: "PO-102", supplier: "Parameport Global", product: "Steel Hex Bolts", sku: "FST-2", quantity: 500, items: 500, unitCost: 15, totalCost: 7500, total: 7500, status: "Pending", date: "2026-03-08" },
         ];
         localStorage.setItem("stockpilot_purchases", JSON.stringify(stored));
       }
+      // Ensure all items conform to purchase schema
+      stored = stored.map((p, idx) => ({
+        ...p,
+        id: p.id || `po_${idx + 1}`,
+        po: p.po || p.id || `PO-${2000 + idx + 1}`,
+        supplier: p.supplier || "Parameport Global",
+        items: p.items ?? p.quantity ?? 1,
+        total: p.total ?? p.totalCost ?? 0,
+        status: p.status || "Pending",
+        date: p.date || new Date().toISOString().slice(0, 10),
+      }));
+
       if (method === "GET") return stored;
       if (method === "POST") {
         const newPO = {
           id: `po_${Date.now().toString(36)}`,
+          po: `PO-${Date.now().toString(36).slice(-4).toUpperCase()}`,
           supplier: body.supplier || "Parameport Global",
           product: body.product || "Product",
           sku: body.sku || "SKU-PO",
           quantity: Number(body.quantity) || 1,
+          items: Number(body.quantity) || 1,
           unitCost: Number(body.unitCost) || 100,
           totalCost: (Number(body.quantity) || 1) * (Number(body.unitCost) || 100),
+          total: (Number(body.quantity) || 1) * (Number(body.unitCost) || 100),
           status: "Pending",
           date: new Date().toISOString().slice(0, 10),
         };
         stored.unshift(newPO);
         localStorage.setItem("stockpilot_purchases", JSON.stringify(stored));
         return newPO;
+      }
+      if (method === "PUT" && parts[1]) {
+        const poId = parts[1];
+        const action = parts[2];
+        const idx = stored.findIndex((o) => o.id === poId || o.po === poId);
+        if (idx !== -1) {
+          if (action === "receive") stored[idx].status = "Received";
+          localStorage.setItem("stockpilot_purchases", JSON.stringify(stored));
+          return stored[idx];
+        }
       }
     }
 

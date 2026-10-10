@@ -44,15 +44,30 @@ export default function Purchases() {
         productService.getAll(),
       ]);
 
-      const posList = posRes.status === "fulfilled" && Array.isArray(posRes.value)
-        ? posRes.value
-        : mockPurchases;
-      const supsList = supsRes.status === "fulfilled" && Array.isArray(supsRes.value)
-        ? supsRes.value
-        : mockSuppliers;
-      const prodsList = prodsRes.status === "fulfilled" && Array.isArray(prodsRes.value)
-        ? prodsRes.value
-        : mockProducts;
+      const posList =
+        posRes.status === "fulfilled" && Array.isArray(posRes.value) && posRes.value.length > 0
+          ? posRes.value.map((p, idx) => ({
+              ...p,
+              id: p.id || `po_${idx + 1}`,
+              po: p.po || p.id || `PO-${100 + idx + 1}`,
+              supplier: p.supplier || "Parameport Global",
+              items: p.items ?? p.quantity ?? 1,
+              total: p.total ?? p.totalCost ?? 0,
+              status: p.status || "Pending",
+              date: p.date || new Date().toISOString().slice(0, 10),
+            }))
+          : [
+              { id: "po_101", po: "PO-101", supplier: "Parameport Global", product: "Power Drill X", sku: "PWR-1", items: 50, total: 9000, status: "Received", date: "2026-03-01" },
+              { id: "po_102", po: "PO-102", supplier: "Parameport Global", product: "Steel Hex Bolts", sku: "FST-2", items: 500, total: 7500, status: "Pending", date: "2026-03-08" },
+            ];
+      const supsList =
+        supsRes.status === "fulfilled" && Array.isArray(supsRes.value) && supsRes.value.length > 0
+          ? supsRes.value
+          : [{ id: "s_1", name: "Parameport Global" }];
+      const prodsList =
+        prodsRes.status === "fulfilled" && Array.isArray(prodsRes.value) && prodsRes.value.length > 0
+          ? prodsRes.value
+          : [{ id: "p_1", sku: "PWR-1", name: "Power Drill X" }];
 
       setPurchases(posList);
       setSuppliers(supsList);
@@ -74,9 +89,12 @@ export default function Purchases() {
         }));
       }
     } catch {
-      setPurchases(mockPurchases);
-      setSuppliers(mockSuppliers);
-      setProducts(mockProducts);
+      setPurchases([
+        { id: "po_101", po: "PO-101", supplier: "Parameport Global", product: "Power Drill X", sku: "PWR-1", items: 50, total: 9000, status: "Received", date: "2026-03-01" },
+        { id: "po_102", po: "PO-102", supplier: "Parameport Global", product: "Steel Hex Bolts", sku: "FST-2", items: 500, total: 7500, status: "Pending", date: "2026-03-08" },
+      ]);
+      setSuppliers([{ id: "s_1", name: "Parameport Global" }]);
+      setProducts([{ id: "p_1", sku: "PWR-1", name: "Power Drill X" }]);
     } finally {
       setLoading(false);
     }
@@ -86,15 +104,15 @@ export default function Purchases() {
     loadData();
   }, []);
 
-  const filtered = useMemo(
-    () =>
-      purchases.filter(
-        (p) =>
-          p.po.toLowerCase().includes(search.toLowerCase()) ||
-          p.supplier.toLowerCase().includes(search.toLowerCase())
-      ),
-    [purchases, search]
-  );
+  const filtered = useMemo(() => {
+    const sTerm = (search || "").toLowerCase().trim();
+    return purchases.filter((p) => {
+      if (!p) return false;
+      const poNum = (p.po || p.id || "").toLowerCase();
+      const supName = (p.supplier || "").toLowerCase();
+      return poNum.includes(sTerm) || supName.includes(sTerm);
+    });
+  }, [purchases, search]);
 
   const save = async (e) => {
     e.preventDefault();

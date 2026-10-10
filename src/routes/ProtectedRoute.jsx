@@ -9,9 +9,15 @@ export default function ProtectedRoute({ children, roles }) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
 
-  if (roles && !roles.includes(user.role)) {
-    return <Navigate to="/" replace />;
+  if (roles && Array.isArray(roles) && roles.length > 0) {
+    const userRole = (user.role || "").toLowerCase().trim();
+    const isAllowed = roles.some((r) => r.toLowerCase().trim() === userRole);
+    // Admin always has full access
+    if (!isAllowed && userRole !== "admin") {
+      return <Navigate to="/" replace />;
+    }
   }
 
   return children;
 }
+

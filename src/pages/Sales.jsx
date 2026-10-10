@@ -81,19 +81,30 @@ export default function Sales() {
       ]);
 
       const salesList =
-        salesRes.status === "fulfilled" && Array.isArray(salesRes.value)
-          ? salesRes.value
-          : mockSales;
+        salesRes.status === "fulfilled" && Array.isArray(salesRes.value) && salesRes.value.length > 0
+          ? salesRes.value.map((s, idx) => ({
+              ...s,
+              id: s.id || `ord_${idx + 1}`,
+              invoice: s.invoice || s.id || `INV-${1000 + idx + 1}`,
+              customer: s.customer || "Direct Client",
+              items: s.items ?? s.quantity ?? 1,
+              total: s.total ?? 0,
+              status: s.status || "Completed",
+              date: s.date || new Date().toISOString().slice(0, 10),
+            }))
+          : [
+              { id: "ord_101", invoice: "INV-101", customer: "Denver Build Co.", items: 5, total: 1150, status: "Completed", date: "2026-03-10" },
+              { id: "ord_102", invoice: "INV-102", customer: "Apex Industrial Supplies", items: 20, total: 460, status: "Accepted", date: "2026-03-11" },
+              { id: "ord_103", invoice: "INV-103", customer: "Denver Build Co.", items: 2, total: 1518, status: "Pending", date: "2026-03-12" },
+            ];
       const prodsList =
-        prodsRes.status === "fulfilled" && Array.isArray(prodsRes.value)
+        prodsRes.status === "fulfilled" && Array.isArray(prodsRes.value) && prodsRes.value.length > 0
           ? prodsRes.value
-          : mockProducts;
+          : [{ id: "p_1", sku: "PWR-1", name: "Power Drill X", quantity: 30, price: 230 }];
       const custList =
-        custsRes.status === "fulfilled" &&
-        Array.isArray(custsRes.value) &&
-        custsRes.value.length > 0
+        custsRes.status === "fulfilled" && Array.isArray(custsRes.value) && custsRes.value.length > 0
           ? custsRes.value
-          : mockCustomers;
+          : [{ id: "c_1", name: "Denver Build Co." }, { id: "c_2", name: "Apex Industrial Supplies" }];
 
       setSales(salesList);
       setProducts(prodsList);
@@ -107,9 +118,13 @@ export default function Sales() {
         }));
       }
     } catch {
-      setSales(mockSales);
-      setProducts(mockProducts);
-      setCustomers(mockCustomers);
+      setSales([
+        { id: "ord_101", invoice: "INV-101", customer: "Denver Build Co.", items: 5, total: 1150, status: "Completed", date: "2026-03-10" },
+        { id: "ord_102", invoice: "INV-102", customer: "Apex Industrial Supplies", items: 20, total: 460, status: "Accepted", date: "2026-03-11" },
+        { id: "ord_103", invoice: "INV-103", customer: "Denver Build Co.", items: 2, total: 1518, status: "Pending", date: "2026-03-12" },
+      ]);
+      setProducts([{ id: "p_1", sku: "PWR-1", name: "Power Drill X", quantity: 30, price: 230 }]);
+      setCustomers([{ id: "c_1", name: "Denver Build Co." }]);
     } finally {
       setLoading(false);
     }
@@ -131,24 +146,27 @@ export default function Sales() {
   const counts = useMemo(() => {
     return {
       all: sales.length,
-      Pending: sales.filter((s) => s.status === "Pending").length,
-      Accepted: sales.filter((s) => s.status === "Accepted").length,
-      Completed: sales.filter((s) => s.status === "Completed").length,
-      Rejected: sales.filter((s) => s.status === "Rejected").length,
+      Pending: sales.filter((s) => s && s.status === "Pending").length,
+      Accepted: sales.filter((s) => s && s.status === "Accepted").length,
+      Completed: sales.filter((s) => s && s.status === "Completed").length,
+      Rejected: sales.filter((s) => s && s.status === "Rejected").length,
     };
   }, [sales]);
 
   const filtered = useMemo(() => {
+    const sTerm = (search || "").toLowerCase().trim();
     return sales
       .filter((s) => {
+        if (!s) return false;
         if (activeTab === "all") return true;
-        return s.status === activeTab;
+        return (s.status || "Completed") === activeTab;
       })
-      .filter(
-        (s) =>
-          s.invoice.toLowerCase().includes(search.toLowerCase()) ||
-          s.customer.toLowerCase().includes(search.toLowerCase())
-      );
+      .filter((s) => {
+        if (!s) return false;
+        const inv = (s.invoice || s.id || "").toLowerCase();
+        const cust = (s.customer || "").toLowerCase();
+        return inv.includes(sTerm) || cust.includes(sTerm);
+      });
   }, [sales, activeTab, search]);
 
   // Accept incoming customer order
