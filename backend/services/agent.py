@@ -6,7 +6,10 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from groq import Groq
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 import backend.models.core as models
 
 load_dotenv()
@@ -228,7 +231,7 @@ def tool_accept_customer_order(query: str, db: Session) -> Dict[str, Any]:
 
 def query_groq_llm(user_prompt: str, db: Session) -> Optional[Dict[str, Any]]:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key:
+    if not Groq or not api_key:
         return None
 
     model_name = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
