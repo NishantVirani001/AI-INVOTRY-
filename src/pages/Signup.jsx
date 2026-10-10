@@ -16,7 +16,7 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState("Staff");
+  const [role, setRole] = useState("Admin");
   const [formError, setFormError] = useState("");
 
   if (user) {

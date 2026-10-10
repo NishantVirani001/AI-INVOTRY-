@@ -13,16 +13,29 @@ export default function Login() {
   const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState("Admin");
 
   if (user) {
     return <Navigate to={location.state?.from || "/"} replace />;
   }
 
+  // Auto-detect registered user's role as they type their email
+  const handleEmailChange = (val) => {
+    setEmail(val);
+    try {
+      const stored = JSON.parse(localStorage.getItem("stockpilot-registered-users") || "[]");
+      const found = stored.find((u) => u.email.toLowerCase() === val.trim().toLowerCase());
+      if (found && found.role) {
+        setRole(found.role);
+      }
+    } catch {}
+  };
+
   const submit = async (e) => {
     e.preventDefault();
-    const res = await login(email, password);
+    const res = await login(email, password, role);
     if (res.success) {
-      toast({ type: "success", message: `Welcome back, ${res.user.name.split(" ")[0]}.` });
+      toast({ type: "success", message: `Welcome back, ${res.user.name.split(" ")[0]} (${res.user.role}).` });
       navigate(location.state?.from || "/", { replace: true });
     }
   };
@@ -49,7 +62,7 @@ export default function Login() {
             required
             placeholder="you@stockpilot.io"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => handleEmailChange(e.target.value)}
           />
           <Input
             label="Password"
@@ -59,13 +72,37 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+
+          <div>
+            <label className="manifest-label mb-1.5 block">Access Role</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {["Admin", "Manager", "Staff", "Customer"].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRole(r)}
+                  className={`rounded-tag border py-1.5 text-center text-xs font-semibold transition-all ${
+                    role === r
+                      ? "border-signal bg-signal/15 text-graphite-900 dark:text-paper-100"
+                      : "border-graphite-800/15 text-graphite-500 hover:border-graphite-400 dark:border-paper-100/15 dark:text-paper-400"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-graphite-400 dark:text-paper-400/60">
+              Assigned permissions apply to your portal session
+            </p>
+          </div>
+
           {error && (
             <p className="rounded-tag bg-stock-out/10 px-3 py-2 text-xs text-stock-out">
               {error}
             </p>
           )}
           <Button type="submit" className="w-full" loading={loading}>
-            {loading ? "Signing in" : "Sign in"}
+            {loading ? "Signing in..." : `Sign in as ${role}`}
           </Button>
         </form>
 

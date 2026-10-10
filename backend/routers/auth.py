@@ -80,9 +80,9 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     avatar_color = random.choice(avatar_colors)
     
     # Standardize role name
-    role_formatted = req.role.capitalize() if req.role else "Staff"
+    role_formatted = req.role.capitalize() if req.role else "Admin"
     if role_formatted not in ["Admin", "Manager", "Employee", "Staff", "Customer"]:
-        role_formatted = "Customer" if "cust" in req.role.lower() else "Staff"
+        role_formatted = "Customer" if "cust" in req.role.lower() else "Admin"
 
     new_user = models.User(
         id=user_id,
