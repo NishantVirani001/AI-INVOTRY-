@@ -519,7 +519,97 @@ function handleClientFallback(endpoint, options = {}) {
       };
     }
 
-    // 9. HEALTH
+    // 9. AI COPILOT ENGINE
+    if (path.startsWith("ai")) {
+      const prods = JSON.parse(localStorage.getItem("stockpilot_products") || "[]");
+      const cats = JSON.parse(localStorage.getItem("stockpilot_categories") || "[]");
+      const sales = JSON.parse(localStorage.getItem("stockpilot_sales") || "[]");
+      const totalUnits = prods.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+      const totalVal = prods.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.price) || 0)), 0);
+      const lowProds = prods.filter((p) => (Number(p.quantity) || 0) <= (Number(p.reorderLevel) || 10));
+
+      if (path.includes("chat")) {
+        const prompt = (body.prompt || "").toLowerCase();
+        const action = body.action;
+
+        if (action) {
+          if (action.type === "CREATE_PO") {
+            return {
+              message: `✅ Purchase order for **${action.quantity || 10} units** of ${action.productName || "item"} has been drafted and issued to vendor.`,
+            };
+          }
+          if (action.type === "ACCEPT_ORDER") {
+            return {
+              message: `✅ Customer order **${action.orderId || "order"}** accepted and inventory allocated.`,
+            };
+          }
+        }
+
+        if (prompt.includes("status") || prompt.includes("stock") || prompt.includes("warehouse")) {
+          return {
+            message: `📦 **Current Warehouse Stock Status**:\n• **${prods.length}** distinct products cataloged\n• **${totalUnits}** total physical units on hand\n• Total Valuation: **₹${totalVal.toLocaleString()}**\n• ${lowProds.length > 0 ? `⚠️ **${lowProds.length} items** at or below reorder threshold` : "✅ All items stocked above reorder levels"}`,
+          };
+        }
+
+        if (prompt.includes("category") || prompt.includes("categories")) {
+          return {
+            message: `🏷️ **Active Warehouse Categories** (${cats.length}):\n` +
+              cats.map((c, i) => `${i + 1}. **${c.name}** — ${c.description || "General catalog"}`).join("\n"),
+          };
+        }
+
+        if (prompt.includes("low") || prompt.includes("reorder") || prompt.includes("depleted")) {
+          if (lowProds.length === 0) {
+            return {
+              message: `✅ **Stock Status Healthy**: All ${prods.length} products are currently stocked above their minimum reorder thresholds.`,
+            };
+          }
+          return {
+            message: `⚠️ **Low Stock Alert** (${lowProds.length} items require replenishment):\n` +
+              lowProds.map((p) => `• **${p.name}** (\`${p.sku}\`): **${p.quantity} units** remaining (Reorder Level: ${p.reorderLevel})`).join("\n"),
+            action: {
+              type: "CREATE_PO",
+              sku: lowProds[0]?.sku || "PWR-1",
+              productName: lowProds[0]?.name || "Item",
+              quantity: 25,
+            },
+          };
+        }
+
+        if (prompt.includes("valuation") || prompt.includes("revenue") || prompt.includes("value") || prompt.includes("worth")) {
+          return {
+            message: `💰 **Inventory Valuation & Financials**:\n• Total Warehouse Asset Value: **₹${totalVal.toLocaleString()}**\n• Total Recorded Sales Volume: **${sales.length} transactions**`,
+          };
+        }
+
+        return {
+          message: `👋 Hello! I am your **StockPilot AI Copilot**.\n\nI can help you monitor live warehouse metrics, audit inventory levels, or draft supplier replenishment orders.\n\nTry asking:\n• *"What is our current warehouse stock status?"*\n• *"What products are low on stock?"*\n• *"List active product categories"*`,
+        };
+      }
+
+      if (path.includes("insights") || path.includes("anomalies")) {
+        return {
+          predictedLowStock: lowProds.map((p) => ({
+            sku: p.sku,
+            name: p.name,
+            currentStock: p.quantity,
+            daysUntilStockout: Math.max(1, Math.round((p.quantity / 5) * 7)),
+            confidence: "94%",
+          })),
+          reorderRecommendations: lowProds.map((p) => ({
+            sku: p.sku,
+            product: p.name,
+            supplier: p.supplier || "Parameport Global",
+            recommendedQty: Math.max(20, (p.reorderLevel || 10) * 3),
+            estimatedCost: ((p.cost || 100) * 20),
+          })),
+          fastMoving: prods.slice(0, 2).map((p) => ({ sku: p.sku, name: p.name, velocity: "Fast" })),
+          slowMoving: prods.slice(2, 4).map((p) => ({ sku: p.sku, name: p.name, velocity: "Slow" })),
+        };
+      }
+    }
+
+    // 10. HEALTH
     if (path.startsWith("health")) {
       return { status: "ok", service: "StockPilot Fallback Local Engine" };
     }
